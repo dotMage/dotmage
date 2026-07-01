@@ -282,6 +282,19 @@ fn run(cli: Cli) -> Result<(), cmd::CliError> {
     }
 }
 
+/// Compare two semver strings. Returns true if `a` is newer than `b`.
+fn semver_gt(a: &str, b: &str) -> bool {
+    let parse = |s: &str| -> (u32, u32, u32) {
+        let mut parts = s.split('.').map(|p| p.parse::<u32>().unwrap_or(0));
+        (
+            parts.next().unwrap_or(0),
+            parts.next().unwrap_or(0),
+            parts.next().unwrap_or(0),
+        )
+    };
+    parse(a) > parse(b)
+}
+
 fn check_for_update() -> Option<String> {
     let cache_path = dotmage_client::config::Config::default_dir().join("update_check.json");
 
@@ -302,7 +315,7 @@ fn check_for_update() -> Option<String> {
     if let Ok(data) = std::fs::read_to_string(&cache_path) {
         if let Ok(cache) = serde_json::from_str::<UpdateCache>(&data) {
             if now.saturating_sub(cache.checked_at) < 86400 {
-                return if cache.latest_version != current {
+                return if semver_gt(&cache.latest_version, current) {
                     Some(cache.latest_version)
                 } else {
                     None
@@ -344,7 +357,7 @@ fn check_for_update() -> Option<String> {
         let _ = std::fs::write(&cache_path, json);
     }
 
-    if latest != current {
+    if semver_gt(&latest, current) {
         Some(latest)
     } else {
         None
