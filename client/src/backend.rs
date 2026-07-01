@@ -27,6 +27,7 @@ pub trait Backend: AsAny {
     // --- Apps ---
     fn list_apps(&self) -> Result<Vec<AppInfo>, BackendError>;
     fn create_app(&self, name: &str) -> Result<(), BackendError>;
+    fn delete_app(&self, name: &str) -> Result<(), BackendError>;
 
     // --- Environments ---
     fn list_envs(&self, app: &str) -> Result<Vec<EnvInfo>, BackendError>;

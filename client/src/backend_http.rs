@@ -503,6 +503,25 @@ impl Backend for HttpBackend {
         Ok(())
     }
 
+    fn delete_app(&self, name: &str) -> Result<(), BackendError> {
+        let (hdr, val) = self.auth_header();
+        let resp = self
+            .client
+            .delete(self.url(&format!("/apps/{}", encode_path(name))))
+            .header(&hdr, &val)
+            .send()
+            .map_err(|e| BackendError::Other(e.to_string()))?;
+
+        let status = resp.status();
+        if !status.is_success() {
+            let body = resp
+                .text()
+                .map_err(|e| BackendError::Other(e.to_string()))?;
+            return Err(Self::extract_error(status, &body));
+        }
+        Ok(())
+    }
+
     fn delete_env(&self, app: &str, env: &str) -> Result<(), BackendError> {
         let (hdr, val) = self.auth_header();
         let resp = self

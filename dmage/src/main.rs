@@ -107,6 +107,11 @@ enum Commands {
     },
     /// List all applications.
     Apps,
+    /// Manage applications.
+    App {
+        #[command(subcommand)]
+        action: AppAction,
+    },
     /// Generate a one-time login token for the web admin.
     Token,
     /// Generate a scoped CI token for a specific app+env.
@@ -145,6 +150,18 @@ enum Commands {
     },
     /// Show help.
     Help,
+}
+
+#[derive(Subcommand)]
+enum AppAction {
+    /// Delete an application and all its environments.
+    Rm {
+        /// Application name.
+        name: String,
+        /// Skip confirmation.
+        #[arg(long)]
+        yes: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -239,6 +256,9 @@ fn run(cli: Cli) -> Result<(), cmd::CliError> {
         Commands::History { name } => cmd::history::run(&ctx, &name),
         Commands::Rollback { name, rev } => cmd::rollback::run(&mut ctx, &name, rev),
         Commands::Apps => cmd::apps::run(&ctx),
+        Commands::App { action } => match action {
+            AppAction::Rm { name, yes } => cmd::app_rm::run(&ctx, &name, yes),
+        },
         Commands::Token => cmd::token_cmd::run(&ctx),
         Commands::GenCiToken { app, env, ttl } => cmd::gen_ci_token::run(&ctx, &app, &env, &ttl),
         Commands::Status => cmd::status::run(&ctx),

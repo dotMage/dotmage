@@ -1,5 +1,6 @@
 //! CLI command implementations.
 
+pub mod app_rm;
 pub mod apps;
 pub mod auth;
 pub mod clean;

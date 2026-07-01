@@ -232,6 +232,15 @@ impl Backend for FsBackend {
         Ok(())
     }
 
+    fn delete_app(&self, name: &str) -> Result<(), BackendError> {
+        let dir = self.app_dir(name);
+        if !dir.exists() {
+            return Err(BackendError::NotFound(format!("app '{name}'")));
+        }
+        fs::remove_dir_all(dir)?;
+        Ok(())
+    }
+
     fn list_envs(&self, app: &str) -> Result<Vec<EnvInfo>, BackendError> {
         let envs_dir = self.app_dir(app).join("envs");
         let names = Self::list_subdirs(&envs_dir)?;
