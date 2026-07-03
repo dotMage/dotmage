@@ -1,8 +1,7 @@
 //! `dmage exec <app> -- <command>` — run with secrets in memory, no disk write.
 
+use dotmage_client::container::FileFormat;
 use dotmage_client::types::RevSpec;
-use dotmage_crypto::blob;
-use dotmage_crypto::secret;
 
 use super::{CliError, Context};
 
@@ -14,18 +13,19 @@ pub fn run(ctx: &mut Context, name: &str, command: &[String]) -> Result<(), CliE
         ));
     }
 
-    let ak = ctx.require_ak()?;
-    let env_name = ctx.active_env.clone();
+    let (_, decoded) = ctx.pull_decoded(name, &RevSpec::Latest)?;
 
-    let revision = ctx
-        .backend
-        .pull_revision(name, &env_name, &RevSpec::Latest)?;
-    let decoded = blob::decode_blob(&revision.blob).map_err(|e| CliError::Crypto(e.to_string()))?;
-    let plaintext = secret::decrypt_secret(&ak, &decoded, name, &env_name, revision.rev_number)
-        .map_err(|e| CliError::Crypto(e.to_string()))?;
+    if decoded.meta.format != FileFormat::Env {
+        return Err(CliError::Other(format!(
+            "'{name}/{}' stores {} ({}) — exec only works with env format",
+            ctx.active_env,
+            decoded.meta.file_name,
+            decoded.meta.format.as_str()
+        )));
+    }
 
     // Parse .env content into key-value pairs
-    let env_vars = parse_env(&plaintext);
+    let env_vars = parse_env(&decoded.data);
 
     // Run the command with injected env vars
     let status = std::process::Command::new(&command[0])

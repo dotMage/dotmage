@@ -66,6 +66,24 @@ dmage exec myapp -- npm run dev
 Inside a project directory the app name defaults to the directory name — `dmage push`
 with no arguments just works.
 
+## Beyond .env
+
+Any file works — DataGrip datasource XML, kubeconfig, service-account JSON. The file
+name and format are stored *inside* the encrypted payload, so the server never sees them,
+and `dmage pull` on another machine recreates the file under its original name:
+
+```bash
+dmage init dbconf --file dataSources.xml
+# on another machine:
+dmage pull dbconf          # writes dataSources.xml
+dmage push dbconf          # picks up dataSources.xml automatically
+```
+
+Formats: `env` (key diff, `exec` injection), `text` (line/byte diff), `binary`
+(sha256 compare) — detected from the extension, override with `--format`.
+`exec` works only with env-format apps. Requires dmage ≥ 1.3 on all devices for
+non-env apps; existing `.env` apps are unaffected and stay compatible with older CLIs.
+
 ## Multiple servers (work / personal)
 
 Optional — with a single server nothing changes. Map project directories to servers

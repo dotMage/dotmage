@@ -47,25 +47,28 @@ enum Commands {
         #[arg(long)]
         ttl: Option<String>,
     },
-    /// Initialize a new app from the current .env file.
+    /// Initialize a new app from a local secrets file (.env, xml, json, ...).
     Init {
         /// Application name (default: current directory name).
         name: Option<String>,
-        /// Path to .env file (default: ./.env).
-        #[arg(long, default_value = ".env")]
-        file: String,
-        /// Allow an empty file (0 keys).
+        /// Path to the secrets file (default: ./.env).
+        #[arg(long)]
+        file: Option<String>,
+        /// Content format: env | text | binary (default: detected from the file).
+        #[arg(long)]
+        format: Option<String>,
+        /// Allow an empty file.
         #[arg(long)]
         allow_empty: bool,
     },
-    /// Push local .env to a new revision.
+    /// Push the local secrets file as a new revision.
     Push {
         /// Application name (default: current directory name).
         name: Option<String>,
-        /// Path to .env file (default: ./.env).
-        #[arg(long, default_value = ".env")]
-        file: String,
-        /// Allow pushing an empty file (0 keys).
+        /// Path to the secrets file (default: the name stored in the app).
+        #[arg(long)]
+        file: Option<String>,
+        /// Allow pushing an empty file.
         #[arg(long)]
         allow_empty: bool,
     },
@@ -98,6 +101,9 @@ enum Commands {
     Diff {
         /// Application name (default: current directory name).
         name: Option<String>,
+        /// Local file to compare (default: the name stored in the app).
+        #[arg(long)]
+        file: Option<String>,
         /// Show actual values (locally only).
         #[arg(long)]
         show_values: bool,
@@ -357,10 +363,17 @@ fn run(cli: Cli) -> Result<(), cmd::CliError> {
         Commands::Init {
             name,
             file,
+            format,
             allow_empty,
         } => {
             let app = ctx.app_name(name.as_deref())?;
-            cmd::init::run(&mut ctx, &app, &file, allow_empty)
+            cmd::init::run(
+                &mut ctx,
+                &app,
+                file.as_deref(),
+                format.as_deref(),
+                allow_empty,
+            )
         }
         Commands::Push {
             name,
@@ -368,7 +381,7 @@ fn run(cli: Cli) -> Result<(), cmd::CliError> {
             allow_empty,
         } => {
             let app = ctx.app_name(name.as_deref())?;
-            cmd::push::run(&mut ctx, &app, &file, allow_empty)
+            cmd::push::run(&mut ctx, &app, file.as_deref(), allow_empty)
         }
         Commands::Pull {
             name,
@@ -388,9 +401,13 @@ fn run(cli: Cli) -> Result<(), cmd::CliError> {
             )
         }
         Commands::Exec { name, command } => cmd::exec::run(&mut ctx, &name, &command),
-        Commands::Diff { name, show_values } => {
+        Commands::Diff {
+            name,
+            file,
+            show_values,
+        } => {
             let app = ctx.app_name(name.as_deref())?;
-            cmd::diff::run(&mut ctx, &app, show_values)
+            cmd::diff::run(&mut ctx, &app, show_values, file.as_deref())
         }
         Commands::History { name } => {
             let app = ctx.app_name(name.as_deref())?;

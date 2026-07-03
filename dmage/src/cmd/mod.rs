@@ -27,8 +27,11 @@ use dotmage_client::backend::Backend;
 use dotmage_client::backend_fs::FsBackend;
 use dotmage_client::backend_http::HttpBackend;
 use dotmage_client::config::{Config, ResolvedVia};
+use dotmage_client::container::{self, Decoded, FileFormat, FileMeta};
 use dotmage_client::keychain;
 use dotmage_client::token;
+use dotmage_client::types::RevSpec;
+use dotmage_crypto::{blob, secret};
 use std::process::ExitCode;
 
 /// Shared context for all commands.
@@ -189,6 +192,20 @@ impl Context {
         }
     }
 
+    /// Pull a revision, decrypt it, and unwrap the file container.
+    /// Returns (rev_number, decoded payload with metadata).
+    pub fn pull_decoded(&mut self, app: &str, rev: &RevSpec) -> Result<(u64, Decoded), CliError> {
+        let ak = self.require_ak()?;
+        let env_name = self.active_env.clone();
+        let revision = self.backend.pull_revision(app, &env_name, rev)?;
+        let decoded_blob =
+            blob::decode_blob(&revision.blob).map_err(|e| CliError::Crypto(e.to_string()))?;
+        let plaintext =
+            secret::decrypt_secret(&ak, &decoded_blob, app, &env_name, revision.rev_number)
+                .map_err(|e| CliError::Crypto(e.to_string()))?;
+        Ok((revision.rev_number, container::decode(&plaintext)))
+    }
+
     /// Recreate HTTP backend with fresh tokens from disk (after registration).
     pub fn refresh_backend(&mut self) -> Result<(), CliError> {
         if let Some(ref url) = self.config.server_url {
@@ -234,15 +251,74 @@ pub fn count_env_keys(data: &[u8]) -> usize {
         .count()
 }
 
-/// Empty-push guard: a file with 0 keys is almost always an accident
+/// Empty-push guard: an empty file is almost always an accident
 /// (truncated file, wrong CWD) that would wipe remote secrets on next pull.
-pub fn empty_guard(file: &str, data: &[u8], allow_empty: bool) -> Result<(), CliError> {
-    if !allow_empty && count_env_keys(data) == 0 {
-        return Err(CliError::Other(format!(
-            "{file} is empty (0 keys) — refusing to push.\n         if this is intentional, re-run with --allow-empty"
-        )));
+/// env format: 0 parsed keys; other formats: 0 bytes.
+pub fn empty_guard(
+    file: &str,
+    data: &[u8],
+    format: FileFormat,
+    allow_empty: bool,
+) -> Result<(), CliError> {
+    if allow_empty {
+        return Ok(());
     }
-    Ok(())
+    let what = match format {
+        FileFormat::Env if count_env_keys(data) == 0 => "0 keys",
+        _ if data.is_empty() => "0 bytes",
+        _ => return Ok(()),
+    };
+    Err(CliError::Other(format!(
+        "{file} is empty ({what}) — refusing to push.\n         if this is intentional, re-run with --allow-empty"
+    )))
+}
+
+/// Detect the content format from a file name (extension family), falling
+/// back to a UTF-8 sniff of the content.
+pub fn detect_format(file_name: &str, data: &[u8]) -> FileFormat {
+    let base = file_name.to_ascii_lowercase();
+    if base == ".env" || base.starts_with(".env.") || base.ends_with(".env") {
+        return FileFormat::Env;
+    }
+    let ext = base.rsplit('.').next().unwrap_or("");
+    match ext {
+        "xml" | "json" | "yaml" | "yml" | "toml" | "ini" | "properties" | "conf" | "cfg"
+        | "txt" => FileFormat::Text,
+        _ => {
+            if std::str::from_utf8(data).is_ok() {
+                FileFormat::Text
+            } else {
+                FileFormat::Binary
+            }
+        }
+    }
+}
+
+/// Human description of a payload for success messages:
+/// `12 keys` for env, `4.2 KB, text` otherwise.
+pub fn describe_payload(meta: &FileMeta, data: &[u8]) -> String {
+    match meta.format {
+        FileFormat::Env => format!("{} keys", count_env_keys(data)),
+        _ => format!("{}, {}", human_size(data.len()), meta.format.as_str()),
+    }
+}
+
+pub fn human_size(n: usize) -> String {
+    if n < 1024 {
+        format!("{n} B")
+    } else if n < 1024 * 1024 {
+        format!("{:.1} KB", n as f64 / 1024.0)
+    } else {
+        format!("{:.1} MB", n as f64 / (1024.0 * 1024.0))
+    }
+}
+
+/// File basename for storage in the container manifest.
+pub fn file_basename(path: &str) -> String {
+    std::path::Path::new(path)
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_else(|| path.to_string())
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -301,13 +377,26 @@ mod tests {
 
     #[test]
     fn empty_guard_blocks_without_flag() {
-        assert!(empty_guard(".env", b"# only comments\n", false).is_err());
-        assert!(empty_guard(".env", b"", false).is_err());
+        assert!(empty_guard(".env", b"# only comments\n", FileFormat::Env, false).is_err());
+        assert!(empty_guard(".env", b"", FileFormat::Env, false).is_err());
+        assert!(empty_guard("a.xml", b"", FileFormat::Text, false).is_err());
     }
 
     #[test]
     fn empty_guard_respects_allow_empty() {
-        assert!(empty_guard(".env", b"", true).is_ok());
-        assert!(empty_guard(".env", b"A=1\n", false).is_ok());
+        assert!(empty_guard(".env", b"", FileFormat::Env, true).is_ok());
+        assert!(empty_guard(".env", b"A=1\n", FileFormat::Env, false).is_ok());
+        // non-env: content without KEY=VALUE lines is fine, only 0 bytes blocks
+        assert!(empty_guard("a.xml", b"<x/>", FileFormat::Text, false).is_ok());
+    }
+
+    #[test]
+    fn format_detection() {
+        assert_eq!(detect_format(".env", b""), FileFormat::Env);
+        assert_eq!(detect_format(".env.production", b""), FileFormat::Env);
+        assert_eq!(detect_format("dataSources.xml", b"<x/>"), FileFormat::Text);
+        assert_eq!(detect_format("cfg.yaml", b""), FileFormat::Text);
+        assert_eq!(detect_format("blob.bin", &[0xff, 0xfe]), FileFormat::Binary);
+        assert_eq!(detect_format("noext", b"plain text"), FileFormat::Text);
     }
 }

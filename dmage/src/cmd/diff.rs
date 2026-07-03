@@ -1,32 +1,88 @@
-//! `dmage diff <app>` — compare local .env with remote.
+//! `dmage diff <app>` — compare the local secrets file with remote.
 
+use dotmage_client::container::FileFormat;
 use dotmage_client::types::RevSpec;
-use dotmage_crypto::blob;
-use dotmage_crypto::secret;
+use sha2::{Digest, Sha256};
 use std::collections::BTreeSet;
 
-use super::{CliError, Context};
+use super::{human_size, CliError, Context};
 
-pub fn run(ctx: &mut Context, name: &str, show_values: bool) -> Result<(), CliError> {
-    let ak = ctx.require_ak()?;
-    let env_name = ctx.active_env.clone();
+pub fn run(
+    ctx: &mut Context,
+    name: &str,
+    show_values: bool,
+    file_arg: Option<&str>,
+) -> Result<(), CliError> {
+    // Remote first: its manifest tells us which local file to compare against.
+    let (rev_number, remote) = ctx.pull_decoded(name, &RevSpec::Latest)?;
 
-    let local_path = std::path::Path::new(".env");
+    let local_file = file_arg.unwrap_or(&remote.meta.file_name);
+    let local_path = std::path::Path::new(local_file);
     if !local_path.exists() {
-        return Err(CliError::Other("no local .env file".into()));
+        return Err(CliError::Other(format!("no local {local_file} file")));
     }
     let local_data = std::fs::read(local_path)?;
-    let local_vars = parse_env_map(&local_data);
 
-    let revision = ctx
-        .backend
-        .pull_revision(name, &env_name, &RevSpec::Latest)?;
-    let decoded = blob::decode_blob(&revision.blob).map_err(|e| CliError::Crypto(e.to_string()))?;
-    let remote_data = secret::decrypt_secret(&ak, &decoded, name, &env_name, revision.rev_number)
-        .map_err(|e| CliError::Crypto(e.to_string()))?;
-    let remote_vars = parse_env_map(&remote_data);
+    match remote.meta.format {
+        FileFormat::Env => diff_env(
+            local_file,
+            &local_data,
+            &remote.data,
+            rev_number,
+            show_values,
+        ),
+        FileFormat::Text => {
+            println!(
+                "Comparing ./{local_file} <> rev {rev_number} ({}):",
+                remote.meta.format.as_str()
+            );
+            if local_data == remote.data {
+                println!("  (identical)");
+            } else {
+                println!(
+                    "  ~ contents differ: local {} lines ({}), remote {} lines ({})",
+                    count_lines(&local_data),
+                    human_size(local_data.len()),
+                    count_lines(&remote.data),
+                    human_size(remote.data.len())
+                );
+            }
+            Ok(())
+        }
+        FileFormat::Binary => {
+            println!(
+                "Comparing ./{local_file} <> rev {rev_number} ({}):",
+                remote.meta.format.as_str()
+            );
+            if Sha256::digest(&local_data) == Sha256::digest(&remote.data) {
+                println!("  (identical)");
+            } else {
+                println!(
+                    "  ~ contents differ: local {}, remote {}",
+                    human_size(local_data.len()),
+                    human_size(remote.data.len())
+                );
+            }
+            Ok(())
+        }
+    }
+}
 
-    println!("Comparing ./.env <> rev {}:", revision.rev_number);
+fn count_lines(data: &[u8]) -> usize {
+    String::from_utf8_lossy(data).lines().count()
+}
+
+fn diff_env(
+    local_file: &str,
+    local_data: &[u8],
+    remote_data: &[u8],
+    rev_number: u64,
+    show_values: bool,
+) -> Result<(), CliError> {
+    let local_vars = parse_env_map(local_data);
+    let remote_vars = parse_env_map(remote_data);
+
+    println!("Comparing ./{local_file} <> rev {rev_number}:");
 
     let all_keys: BTreeSet<&str> = local_vars
         .keys()

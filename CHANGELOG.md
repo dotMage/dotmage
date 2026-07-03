@@ -6,6 +6,11 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning: [S
 ## [Unreleased]
 
 ### Added
+- Store any file, not just `.env` — DataGrip XML, kubeconfig, JSON (`dmage init dbconf
+  --file dataSources.xml`). The file name/format travel inside the encrypted payload
+  (server never sees them); `pull`/`push` use the stored name automatically; `diff`
+  adapts to the format; `exec` clearly refuses non-env apps. Non-env apps require this
+  version on all devices; existing `.env` apps are untouched.
 - Multiple servers (work/personal): `dmage server add/map/list/rm/use/rename`, global
   `--server <name>`, `DOTMAGE_SERVER` env var. Project directories map to servers in the
   global config (like git `includeIf`) — commands pick the right server from your CWD.
