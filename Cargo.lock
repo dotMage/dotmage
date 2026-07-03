@@ -359,6 +359,7 @@ dependencies = [
  "dotmage-crypto",
  "hex",
  "libc",
+ "rand",
  "reqwest",
  "rpassword",
  "self-replace",

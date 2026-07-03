@@ -11,6 +11,7 @@ thiserror = "2"
 rpassword = "7"
 base64 = "0.22"
 sha2 = "0.10"
+rand = "0.8"
 hex = "0.4"
 reqwest = { version = "0.12", features = ["blocking", "json"] }
 serde = { version = "1", features = ["derive"] }

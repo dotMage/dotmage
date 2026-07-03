@@ -43,6 +43,9 @@ enum Commands {
         /// Enrollment token (for subsequent devices).
         #[arg(long)]
         enroll: Option<String>,
+        /// Team invitation token (dmage_uinv_...) — join as a new user.
+        #[arg(long)]
+        invite: Option<String>,
         /// Cache TTL (e.g., "7d", "30d").
         #[arg(long)]
         ttl: Option<String>,
@@ -172,6 +175,13 @@ enum Commands {
         #[arg(long, default_value = "24h")]
         ttl: String,
     },
+    /// Show who you are on this server (user, role, device).
+    Whoami,
+    /// Manage team members (requires a team-mode server).
+    User {
+        #[command(subcommand)]
+        action: UserAction,
+    },
     /// Rotate the Account Key: re-encrypt all revisions with a fresh key.
     RotateKey {
         /// Skip the confirmation prompt.
@@ -200,6 +210,23 @@ enum Commands {
     },
     /// Show help.
     Help,
+}
+
+#[derive(Subcommand)]
+enum UserAction {
+    /// List team members and pending invitations.
+    List,
+    /// Invite a new member (prints a one-time token — send it privately).
+    Invite {
+        /// Member handle (e.g., kolya).
+        name: String,
+        /// Role: owner | editor | viewer.
+        #[arg(long, default_value = "editor")]
+        role: String,
+        /// Invitation TTL (e.g., "24h").
+        #[arg(long, default_value = "24h")]
+        ttl: String,
+    },
 }
 
 #[derive(Subcommand)]
@@ -338,6 +365,20 @@ fn run(cli: Cli) -> Result<(), cmd::CliError> {
     // where it registers the server first.
     let mut server_override = cli.server.clone();
     let mut auth_url: Option<String> = None;
+    // `auth --invite`: the token carries the server URL — register it first.
+    if let Commands::Auth {
+        invite: Some(ref token),
+        ref name,
+        ..
+    } = command
+    {
+        if let Ok(parsed) = cmd::user::parse_invite_token(token) {
+            let url = parsed.server_url.trim_end_matches('/').to_string();
+            let name = name.clone().unwrap_or_else(|| name_from_url(&url));
+            register_server(&url, &name)?;
+            server_override = Some(name);
+        }
+    }
     if let Some(ref s) = cli.server {
         if is_url(s) {
             if let Commands::Auth { ref name, .. } = command {
@@ -357,14 +398,23 @@ fn run(cli: Cli) -> Result<(), cmd::CliError> {
     let mut ctx = cmd::Context::load(cli.env, server_override, cli.quiet, cli.json)?;
 
     match command {
-        Commands::Auth { ttl, enroll, .. } => {
+        Commands::Auth {
+            ttl,
+            enroll,
+            invite,
+            ..
+        } => {
             if auth_url.is_some() && ctx.config.servers.len() > 1 && !cli.quiet {
                 println!(
                     "  \x1b[90mhint: map a projects dir to this server: dmage server map {} ~/code/...\x1b[0m",
                     ctx.server.as_ref().map(|(n, _)| n.as_str()).unwrap_or("<name>")
                 );
             }
-            cmd::auth::run(&mut ctx, ttl, enroll)
+            if let Some(token) = invite {
+                cmd::auth::join_with_invite(&mut ctx, &token, ttl)
+            } else {
+                cmd::auth::run(&mut ctx, ttl, enroll)
+            }
         }
         Commands::Init {
             name,
@@ -450,6 +500,16 @@ fn run(cli: Cli) -> Result<(), cmd::CliError> {
         Commands::Logout { all } => cmd::lock::run_logout(&ctx, all),
         Commands::Clean => cmd::clean::run(&ctx),
         Commands::GenToken { name, ttl } => cmd::gen_token::run(&ctx, name.as_deref(), &ttl),
+        Commands::Whoami => cmd::user::whoami(&ctx),
+        Commands::User { action } => cmd::user::run(
+            &mut ctx,
+            match action {
+                UserAction::List => cmd::user::UserCmd::List,
+                UserAction::Invite { name, role, ttl } => {
+                    cmd::user::UserCmd::Invite { name, role, ttl }
+                }
+            },
+        ),
         Commands::RotateKey { yes } => cmd::rotate_key::run(&mut ctx, yes),
         Commands::Upgrade {
             check,

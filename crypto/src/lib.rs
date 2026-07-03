@@ -4,6 +4,7 @@
 
 pub mod blob;
 pub mod envelope;
+pub mod invite;
 pub mod kdf;
 pub mod secret;
 pub mod zeroize_util;

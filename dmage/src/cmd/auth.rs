@@ -12,6 +12,93 @@ use dotmage_crypto::kdf;
 
 use super::{CliError, Context};
 
+/// `dmage auth --invite` — join a team (spec K.2): redeem, unseal AK, pick a
+/// password, upload the personal wrap, register this device.
+pub fn join_with_invite(
+    ctx: &mut Context,
+    token_str: &str,
+    ttl: Option<String>,
+) -> Result<(), CliError> {
+    let ttl_secs = parse_ttl(ttl.as_deref()).unwrap_or(ctx.config.key_ttl_secs);
+    let token = super::user::parse_invite_token(token_str)?;
+
+    let backend = ctx
+        .backend
+        .as_any()
+        .downcast_ref::<HttpBackend>()
+        .ok_or_else(|| CliError::Other("joining requires server mode".into()))?;
+
+    // Step 1: sealed AK
+    let resp = backend.invite_redeem(&token.invitation_id, &token.redeem_secret)?;
+    let nonce: [u8; 24] = B64
+        .decode(&resp.nonce_inv)
+        .map_err(|e| CliError::Crypto(e.to_string()))?
+        .try_into()
+        .map_err(|_| CliError::Crypto("invalid invitation nonce".into()))?;
+    let sealed = dotmage_crypto::envelope::WrappedAk {
+        nonce,
+        ciphertext: B64
+            .decode(&resp.sealed_ak)
+            .map_err(|e| CliError::Crypto(e.to_string()))?,
+    };
+    let ak = dotmage_crypto::invite::unseal_ak_invite(&token.k, &sealed)
+        .map_err(|_| CliError::Other("cannot unseal invitation — token corrupted?".into()))?;
+
+    println!(
+        "\n  \x1b[36mJoining as '{}' ({}) — pick YOUR OWN master password\x1b[0m\n",
+        resp.name, resp.role
+    );
+    let password = prompt_password("New master password: ")?;
+    let confirm = prompt_password("Confirm master password: ")?;
+    if password != confirm {
+        return Err(CliError::Other("passwords do not match".into()));
+    }
+
+    // Personal wrap (spec K.0): own salt, own MK, shared AK.
+    let salt = kdf::generate_salt();
+    let mk = kdf::derive_master_key(password.as_bytes(), &salt)
+        .map_err(|e| CliError::Crypto(e.to_string()))?;
+    let wrapped = envelope::wrap_ak(&mk, &ak).map_err(|e| CliError::Crypto(e.to_string()))?;
+
+    // Step 2: create user + device
+    let joined = backend.invite_complete(
+        &token.invitation_id,
+        &token.redeem_secret,
+        &hostname(),
+        &B64.encode(salt),
+        &ArgonParamsDto {
+            memory: kdf::ARGON2_MEMORY_KIB,
+            iterations: kdf::ARGON2_ITERATIONS,
+            parallelism: kdf::ARGON2_PARALLELISM,
+            version: kdf::ARGON2_VERSION,
+        },
+        &B64.encode(wrapped.nonce),
+        &B64.encode(&wrapped.ciphertext),
+    )?;
+
+    save_device_tokens(
+        ctx,
+        &dotmage_client::backend_http::DeviceAuthResp {
+            device_token: joined.device_token,
+            refresh_token: joined.refresh_token,
+            device_id: joined.account_id,
+            token_expires_at: joined.expires_at,
+        },
+    )?;
+    ctx.refresh_backend()?;
+
+    let server_hash = keychain::server_hash(&ctx.config.server_id());
+    keychain::store_ak_gen(&server_hash, &ak, resp.key_gen, ttl_secs)
+        .map_err(|e| CliError::Keychain(e.to_string()))?;
+
+    ctx.success(&format!(
+        "Joined as '{}' ({}). Key cached.",
+        resp.name, resp.role
+    ));
+    ctx.print("your password is yours alone — nobody else on the team knows it");
+    Ok(())
+}
+
 pub fn run(ctx: &mut Context, ttl: Option<String>, enroll: Option<String>) -> Result<(), CliError> {
     let ttl_secs = parse_ttl(ttl.as_deref()).unwrap_or(ctx.config.key_ttl_secs);
 

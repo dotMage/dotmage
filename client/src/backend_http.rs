@@ -206,6 +206,143 @@ impl HttpBackend {
         BackendError::Other(format!("HTTP {status}: {body}"))
     }
 
+    // --- Methods outside Backend trait (team, spec B.9) ---
+
+    /// Server capabilities (B.1/B.9).
+    pub fn health(&self) -> Result<HealthInfo, BackendError> {
+        let resp = self
+            .client
+            .get(format!("{}/health", self.base_url.trim_end_matches('/')))
+            .send()
+            .map_err(|e| BackendError::Other(e.to_string()))?;
+        let status = resp.status();
+        let body = resp
+            .text()
+            .map_err(|e| BackendError::Other(e.to_string()))?;
+        if !status.is_success() {
+            return Err(Self::extract_error(status, &body));
+        }
+        serde_json::from_str(&body).map_err(|e| BackendError::Other(e.to_string()))
+    }
+
+    /// Who am I on this server.
+    pub fn whoami(&self) -> Result<WhoamiInfo, BackendError> {
+        let (status, body) = self.auth_get("/whoami")?;
+        if !status.is_success() {
+            return Err(Self::extract_error(status, &body));
+        }
+        serde_json::from_str(&body).map_err(|e| BackendError::Other(e.to_string()))
+    }
+
+    /// Team roster + pending invitations.
+    pub fn users_list(&self) -> Result<(Vec<UserInfo>, Vec<InvitationInfo>), BackendError> {
+        let (status, body) = self.auth_get("/users")?;
+        if !status.is_success() {
+            return Err(Self::extract_error(status, &body));
+        }
+        #[derive(Deserialize)]
+        struct Resp {
+            users: Vec<UserInfo>,
+            invitations: Vec<InvitationInfo>,
+        }
+        let parsed: Resp =
+            serde_json::from_str(&body).map_err(|e| BackendError::Other(e.to_string()))?;
+        Ok((parsed.users, parsed.invitations))
+    }
+
+    /// Create an invitation (K.1). Returns (invitation_id, expires_at).
+    pub fn users_invite(
+        &self,
+        name: &str,
+        role: &str,
+        ttl: &str,
+        sealed_ak: &str,
+        nonce_inv: &str,
+        redeem_hash: &str,
+    ) -> Result<(String, String), BackendError> {
+        let (status, body) = self.auth_post_json(
+            "/users/invite",
+            &serde_json::json!({
+                "name": name, "role": role, "ttl": ttl,
+                "sealed_ak": sealed_ak, "nonce_inv": nonce_inv, "redeem_hash": redeem_hash,
+            }),
+        )?;
+        if !status.is_success() {
+            return Err(Self::extract_error(status, &body));
+        }
+        #[derive(Deserialize)]
+        struct Resp {
+            invitation_id: String,
+            expires_at: String,
+        }
+        let parsed: Resp =
+            serde_json::from_str(&body).map_err(|e| BackendError::Other(e.to_string()))?;
+        Ok((parsed.invitation_id, parsed.expires_at))
+    }
+
+    /// Invitation step 1 (K.2): fetch the sealed AK. Unauthenticated.
+    pub fn invite_redeem(
+        &self,
+        invitation_id: &str,
+        redeem_secret: &str,
+    ) -> Result<RedeemResp, BackendError> {
+        let resp = self
+            .client
+            .post(self.url("/invitations/redeem"))
+            .json(&serde_json::json!({
+                "invitation_id": invitation_id, "redeem_secret": redeem_secret,
+            }))
+            .send()
+            .map_err(|e| BackendError::Other(e.to_string()))?;
+        let status = resp.status();
+        let body = resp
+            .text()
+            .map_err(|e| BackendError::Other(e.to_string()))?;
+        if !status.is_success() {
+            return Err(Self::extract_error(status, &body));
+        }
+        serde_json::from_str(&body).map_err(|e| BackendError::Other(e.to_string()))
+    }
+
+    /// Invitation step 2 (K.2): create the user + device. Unauthenticated.
+    #[allow(clippy::too_many_arguments)]
+    pub fn invite_complete(
+        &self,
+        invitation_id: &str,
+        redeem_secret: &str,
+        device_name: &str,
+        salt: &str,
+        argon: &ArgonParamsDto,
+        nonce_ak: &str,
+        wrapped_ak: &str,
+    ) -> Result<AccountInitResp, BackendError> {
+        let resp = self
+            .client
+            .post(self.url("/invitations/complete"))
+            .json(&serde_json::json!({
+                "invitation_id": invitation_id,
+                "redeem_secret": redeem_secret,
+                "device_name": device_name,
+                "salt": salt,
+                "argon_memory": argon.memory,
+                "argon_iterations": argon.iterations,
+                "argon_parallelism": argon.parallelism,
+                "argon_version": argon.version,
+                "nonce_ak": nonce_ak,
+                "wrapped_ak": wrapped_ak,
+            }))
+            .send()
+            .map_err(|e| BackendError::Other(e.to_string()))?;
+        let status = resp.status();
+        let body = resp
+            .text()
+            .map_err(|e| BackendError::Other(e.to_string()))?;
+        if !status.is_success() {
+            return Err(Self::extract_error(status, &body));
+        }
+        serde_json::from_str(&body).map_err(|e| BackendError::Other(e.to_string()))
+    }
+
     // --- Methods outside Backend trait (device management) ---
 
     /// Generate an enrollment token for adding a new device.

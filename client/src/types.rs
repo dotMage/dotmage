@@ -156,4 +156,50 @@ pub struct HealthInfo {
     pub status: String,
     pub version: String,
     pub account_exists: bool,
+    /// Optional capabilities (B.9): "rotation", "team". Old servers omit it.
+    #[serde(default)]
+    pub features: Vec<String>,
+}
+
+/// Identity of the calling device/user (B.9).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WhoamiInfo {
+    pub user_id: Option<String>,
+    pub name: String,
+    pub role: String,
+    pub device_id: String,
+    pub device_name: String,
+}
+
+/// Team member entry (GET /users).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UserInfo {
+    pub id: String,
+    pub name: String,
+    pub role: String,
+    pub status: String,
+    pub key_gen: u64,
+    pub created_at: String,
+}
+
+/// Pending invitation entry (GET /users).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct InvitationInfo {
+    pub id: String,
+    pub name: String,
+    pub role: String,
+    pub status: String,
+    pub expires_at: String,
+}
+
+/// Step-1 redemption response (K.2).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RedeemResp {
+    pub sealed_ak: String,
+    pub nonce_inv: String,
+    #[serde(default = "default_key_gen")]
+    pub key_gen: u64,
+    pub name: String,
+    pub role: String,
+    pub argon_defaults: ArgonParamsDto,
 }

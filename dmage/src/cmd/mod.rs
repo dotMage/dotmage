@@ -19,6 +19,7 @@ pub mod server;
 pub mod status;
 pub mod token_cmd;
 pub mod upgrade;
+pub mod user;
 
 pub mod gen_ci_token;
 
