@@ -11,7 +11,7 @@ pub fn run(ctx: &Context, name: Option<&str>, ttl: &str) -> Result<(), CliError>
         .downcast_ref::<HttpBackend>()
         .ok_or_else(|| {
             CliError::Other(
-                "gen-token requires a server connection (set server_url in config)".into(),
+                "gen-token requires a server connection (run: dmage auth --server <url>)".into(),
             )
         })?;
 

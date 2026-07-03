@@ -58,9 +58,35 @@ dmage exec myapp -- npm run dev
 | `dmage apps` | List applications |
 | `dmage status` | Show sync status |
 | `dmage env list <app>` | List environments |
-| `dmage lock` | Remove key from keychain |
+| `dmage lock` | Remove key from keychain (`--all` for every server) |
 | `dmage logout` | Full logout (key + tokens) |
+| `dmage server list/add/map/rm/use` | Manage multiple servers (see below) |
 | `dmage upgrade` | Self-update from GitHub releases (sha256-verified) |
+
+Inside a project directory the app name defaults to the directory name — `dmage push`
+with no arguments just works.
+
+## Multiple servers (work / personal)
+
+Optional — with a single server nothing changes. Map project directories to servers
+(like git's `includeIf`), and every command picks the right server from your CWD:
+
+```bash
+dmage server add work https://secrets.corp.com --path ~/code/work
+dmage auth --server work
+dmage server add personal https://home.example.com --path ~/code/personal
+dmage auth --server personal
+
+cd ~/code/work/billing-api
+dmage push                    # → work, app "billing-api"
+cd ~/code/personal/blog
+dmage pull                    # → personal, app "blog"
+```
+
+Resolution order: `--server <name>` flag → `DOTMAGE_SERVER` env var → longest matching
+mapped path → `dmage server use <name>` default. Ambiguity is an error, never a guess.
+With 2+ servers every push/pull prints which server it hit (`→ work (secrets.corp.com)`),
+and `dmage status` explains why that server was picked.
 
 ## Security
 

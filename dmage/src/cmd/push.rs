@@ -64,8 +64,9 @@ pub fn run(ctx: &mut Context, name: &str, file: &str, allow_empty: bool) -> Resu
 
     let key_count = count_env_keys(&plaintext);
     ctx.success(&format!(
-        "Pushed revision {} ({key_count} keys).",
-        meta.rev_number
+        "Pushed revision {} ({key_count} keys).{}",
+        meta.rev_number,
+        ctx.server_suffix()
     ));
     Ok(())
 }

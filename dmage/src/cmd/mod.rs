@@ -14,6 +14,7 @@ pub mod lock;
 pub mod pull;
 pub mod push;
 pub mod rollback;
+pub mod server;
 pub mod status;
 pub mod token_cmd;
 pub mod upgrade;
@@ -25,7 +26,7 @@ use base64::Engine;
 use dotmage_client::backend::Backend;
 use dotmage_client::backend_fs::FsBackend;
 use dotmage_client::backend_http::HttpBackend;
-use dotmage_client::config::Config;
+use dotmage_client::config::{Config, ResolvedVia};
 use dotmage_client::keychain;
 use dotmage_client::token;
 use std::process::ExitCode;
@@ -35,6 +36,9 @@ pub struct Context {
     pub config: Config,
     pub backend: Box<dyn Backend>,
     pub active_env: String,
+    /// Resolved server (name, how it was picked). None = local mode.
+    /// The resolved URL lives in `config.server_url` for the duration of the run.
+    pub server: Option<(String, ResolvedVia)>,
     pub quiet: bool,
     #[allow(dead_code)]
     pub json: bool,
@@ -43,8 +47,16 @@ pub struct Context {
 }
 
 impl Context {
-    pub fn load(env_override: Option<String>, quiet: bool, json: bool) -> Result<Self, CliError> {
-        let config = Config::load().map_err(|e| CliError::Config(e.to_string()))?;
+    pub fn load(
+        env_override: Option<String>,
+        server_override: Option<String>,
+        quiet: bool,
+        json: bool,
+    ) -> Result<Self, CliError> {
+        let mut config = Config::load().map_err(|e| CliError::Config(e.to_string()))?;
+        if config.migrate_legacy() {
+            config.save().map_err(|e| CliError::Config(e.to_string()))?;
+        }
         let active_env = env_override.unwrap_or_else(|| config.active_env.clone());
 
         // Check for DOTMAGE_CI_TOKEN env var (CI mode)
@@ -52,28 +64,62 @@ impl Context {
             return Self::load_from_ci_token(&config, active_env, quiet, json, &ci_token);
         }
 
-        let backend: Box<dyn Backend> = if let Some(ref url) = config.server_url {
-            // HTTP mode — connect to server
-            let server_hash = keychain::server_hash(url);
-            let device_token = token::load_tokens(&server_hash)
-                .ok()
-                .flatten()
-                .map(|t| t.device_token)
-                .unwrap_or_default();
-            Box::new(HttpBackend::new(url, &device_token))
-        } else {
-            // Local mode — FsBackend
-            Box::new(FsBackend::new(config.fs_root()))
+        let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+        let resolved = config
+            .resolve_server(server_override.as_deref(), &cwd)
+            .map_err(|e| CliError::Config(e.to_string()))?;
+
+        let (backend, server): (Box<dyn Backend>, _) = match resolved {
+            Some(r) => {
+                config.server_url = Some(r.url.clone());
+                let server_hash = keychain::server_hash(&r.url);
+                let device_token = token::load_tokens(&server_hash)
+                    .ok()
+                    .flatten()
+                    .map(|t| t.device_token)
+                    .unwrap_or_default();
+                (
+                    Box::new(HttpBackend::new(&r.url, &device_token)),
+                    Some((r.name, r.via)),
+                )
+            }
+            None => (Box::new(FsBackend::new(config.fs_root())), None),
         };
 
         Ok(Self {
             config,
             backend,
             active_env,
+            server,
             quiet,
             json,
             ak: None,
         })
+    }
+
+    /// Resolve the app name: explicit argument, or the current directory's basename.
+    pub fn app_name(&self, explicit: Option<&str>) -> Result<String, CliError> {
+        if let Some(name) = explicit {
+            return Ok(name.to_string());
+        }
+        std::env::current_dir()
+            .ok()
+            .and_then(|d| d.file_name().map(|n| n.to_string_lossy().into_owned()))
+            .filter(|n| !n.is_empty())
+            .ok_or_else(|| {
+                CliError::Other("cannot infer app name from directory — pass it explicitly".into())
+            })
+    }
+
+    /// `" → name (host)"` suffix for mutating-command output.
+    /// Empty with 0–1 configured servers: a solo user never sees multi-server UI.
+    pub fn server_suffix(&self) -> String {
+        if self.config.servers.len() > 1 {
+            if let (Some((name, _)), Some(url)) = (&self.server, &self.config.server_url) {
+                return format!("  \x1b[90m→ {name} ({})\x1b[0m", host_of(url));
+            }
+        }
+        String::new()
     }
 
     fn load_from_ci_token(
@@ -119,6 +165,7 @@ impl Context {
             config: ci_config,
             backend,
             active_env,
+            server: Some(("ci".into(), ResolvedVia::CiToken)),
             quiet,
             json,
             ak: Some(ak),
@@ -140,23 +187,6 @@ impl Context {
             Ok(None) => Err(CliError::NotAuthenticated),
             Err(e) => Err(CliError::Keychain(e.to_string())),
         }
-    }
-
-    /// Switch to server mode: save URL, recreate backend.
-    pub fn set_server(&mut self, url: &str) -> Result<(), CliError> {
-        self.config.server_url = Some(url.to_string());
-        self.config
-            .save()
-            .map_err(|e| CliError::Config(e.to_string()))?;
-
-        let server_hash = keychain::server_hash(url);
-        let device_token = token::load_tokens(&server_hash)
-            .ok()
-            .flatten()
-            .map(|t| t.device_token)
-            .unwrap_or_default();
-        self.backend = Box::new(HttpBackend::new(url, &device_token));
-        Ok(())
     }
 
     /// Recreate HTTP backend with fresh tokens from disk (after registration).
@@ -184,6 +214,13 @@ impl Context {
             println!("  \x1b[32m✓\x1b[0m {msg}");
         }
     }
+}
+
+/// Strip scheme and trailing slash from a URL for compact display.
+pub fn host_of(url: &str) -> &str {
+    url.trim_start_matches("https://")
+        .trim_start_matches("http://")
+        .trim_end_matches('/')
 }
 
 /// Count KEY=VALUE lines in .env content (comments and blanks excluded).

@@ -25,9 +25,12 @@ pub fn run(ctx: &Context) -> Result<(), CliError> {
         return Ok(());
     }
 
-    // Delete AK
-    let server_hash = keychain::server_hash(&ctx.config.server_id());
-    let _ = keychain::delete_ak(&server_hash);
+    // Delete AKs for every configured server + local mode (belt and braces —
+    // the config-dir removal below covers the default layout).
+    for entry in ctx.config.servers.values() {
+        let _ = keychain::delete_ak(&keychain::server_hash(&entry.url));
+    }
+    let _ = keychain::delete_ak(&keychain::server_hash(&ctx.config.server_id()));
 
     // Delete entire config directory
     if config_dir.exists() {

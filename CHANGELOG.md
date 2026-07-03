@@ -6,6 +6,12 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning: [S
 ## [Unreleased]
 
 ### Added
+- Multiple servers (work/personal): `dmage server add/map/list/rm/use/rename`, global
+  `--server <name>`, `DOTMAGE_SERVER` env var. Project directories map to servers in the
+  global config (like git `includeIf`) — commands pick the right server from your CWD.
+  Single-server setups are unaffected; legacy configs migrate automatically.
+- App name defaults to the current directory name: `dmage push` with no arguments.
+- `dmage lock --all` / `dmage logout --all` — act on every configured server.
 - `dmage upgrade` — self-update from GitHub releases: verifies `SHA256SUMS`, sanity-checks
   the new binary, replaces itself atomically. `--check`, `--version`, `--force`, `-y`.
   Homebrew/cargo installs get a hint to use their package manager instead.

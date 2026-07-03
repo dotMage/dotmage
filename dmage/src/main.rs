@@ -20,6 +20,10 @@ struct Cli {
     #[arg(long, global = true)]
     env: Option<String>,
 
+    /// Server to use: a configured name, or a URL with `dmage auth`.
+    #[arg(long, global = true)]
+    server: Option<String>,
+
     /// Suppress non-error output.
     #[arg(short, long, global = true)]
     quiet: bool,
@@ -33,9 +37,9 @@ struct Cli {
 enum Commands {
     /// Authenticate with the dotMage server.
     Auth {
-        /// Server URL (first time only).
+        /// Name for the server added via --server <url> (default: its host).
         #[arg(long)]
-        server: Option<String>,
+        name: Option<String>,
         /// Enrollment token (for subsequent devices).
         #[arg(long)]
         enroll: Option<String>,
@@ -45,8 +49,8 @@ enum Commands {
     },
     /// Initialize a new app from the current .env file.
     Init {
-        /// Application name.
-        name: String,
+        /// Application name (default: current directory name).
+        name: Option<String>,
         /// Path to .env file (default: ./.env).
         #[arg(long, default_value = ".env")]
         file: String,
@@ -56,8 +60,8 @@ enum Commands {
     },
     /// Push local .env to a new revision.
     Push {
-        /// Application name.
-        name: String,
+        /// Application name (default: current directory name).
+        name: Option<String>,
         /// Path to .env file (default: ./.env).
         #[arg(long, default_value = ".env")]
         file: String,
@@ -67,8 +71,8 @@ enum Commands {
     },
     /// Pull secrets and write to .env file.
     Pull {
-        /// Application name.
-        name: String,
+        /// Application name (default: current directory name).
+        name: Option<String>,
         /// Specific revision (default: latest).
         #[arg(long)]
         rev: Option<String>,
@@ -92,21 +96,21 @@ enum Commands {
     },
     /// Show diff between local and remote.
     Diff {
-        /// Application name.
-        name: String,
+        /// Application name (default: current directory name).
+        name: Option<String>,
         /// Show actual values (locally only).
         #[arg(long)]
         show_values: bool,
     },
     /// Show revision history.
     History {
-        /// Application name.
-        name: String,
+        /// Application name (default: current directory name).
+        name: Option<String>,
     },
     /// Rollback to a previous revision.
     Rollback {
-        /// Application name.
-        name: String,
+        /// Application name (default: current directory name).
+        name: Option<String>,
         /// Target revision number.
         #[arg(long)]
         rev: u64,
@@ -132,12 +136,25 @@ enum Commands {
         #[arg(long, default_value = "30d")]
         ttl: String,
     },
+    /// Manage servers (work/personal, directory mappings).
+    Server {
+        #[command(subcommand)]
+        action: ServerAction,
+    },
     /// Show sync status.
     Status,
     /// Remove cached key (keep device token).
-    Lock,
+    Lock {
+        /// Lock all configured servers.
+        #[arg(long)]
+        all: bool,
+    },
     /// Full logout (key + tokens + local data).
-    Logout,
+    Logout {
+        /// Log out of all configured servers.
+        #[arg(long)]
+        all: bool,
+    },
     /// Wipe all local dotMage data from this device.
     Clean,
     /// Generate enrollment/CI token.
@@ -171,6 +188,56 @@ enum Commands {
     },
     /// Show help.
     Help,
+}
+
+#[derive(Subcommand)]
+enum ServerAction {
+    /// List configured servers.
+    List,
+    /// Add or update a server.
+    Add {
+        /// Server name (e.g., work).
+        name: String,
+        /// Server URL.
+        url: String,
+        /// Directory to map to this server (repeatable).
+        #[arg(long)]
+        path: Vec<String>,
+    },
+    /// Map a directory to a server.
+    Map {
+        /// Server name.
+        name: String,
+        /// Directory path.
+        path: String,
+    },
+    /// Remove a directory mapping.
+    Unmap {
+        /// Server name.
+        name: String,
+        /// Directory path.
+        path: String,
+    },
+    /// Remove a server (wipes its local tokens + cached key).
+    Rm {
+        /// Server name.
+        name: String,
+        /// Skip confirmation.
+        #[arg(long)]
+        yes: bool,
+    },
+    /// Set the fallback server for unmapped directories.
+    Use {
+        /// Server name.
+        name: String,
+    },
+    /// Rename a server.
+    Rename {
+        /// Current name.
+        old: String,
+        /// New name.
+        new: String,
+    },
 }
 
 #[derive(Subcommand)]
@@ -232,6 +299,19 @@ fn main() -> ExitCode {
     }
 }
 
+fn is_url(s: &str) -> bool {
+    s.starts_with("http://") || s.starts_with("https://")
+}
+
+/// Derive a server name from its URL host (`https://secrets.corp.com` → `secrets.corp.com`).
+fn name_from_url(url: &str) -> String {
+    cmd::host_of(url)
+        .split(['/', ':'])
+        .next()
+        .unwrap_or("server")
+        .to_string()
+}
+
 fn run(cli: Cli) -> Result<(), cmd::CliError> {
     let command = cli.command.unwrap();
 
@@ -242,57 +322,109 @@ fn run(cli: Cli) -> Result<(), cmd::CliError> {
         return Ok(());
     }
 
-    let mut ctx = cmd::Context::load(cli.env, cli.quiet, cli.json)?;
+    // --server takes a configured name; a URL is accepted only with `dmage auth`,
+    // where it registers the server first.
+    let mut server_override = cli.server.clone();
+    let mut auth_url: Option<String> = None;
+    if let Some(ref s) = cli.server {
+        if is_url(s) {
+            if let Commands::Auth { ref name, .. } = command {
+                let url = s.trim_end_matches('/').to_string();
+                let name = name.clone().unwrap_or_else(|| name_from_url(&url));
+                register_server(&url, &name)?;
+                server_override = Some(name);
+                auth_url = Some(url);
+            } else {
+                return Err(cmd::CliError::Config(format!(
+                    "--server expects a configured name here; to add '{s}' run: dmage auth --server {s} --name <name>"
+                )));
+            }
+        }
+    }
+
+    let mut ctx = cmd::Context::load(cli.env, server_override, cli.quiet, cli.json)?;
 
     match command {
-        Commands::Auth {
-            server,
-            ttl,
-            enroll,
-        } => {
-            // If --server provided, update config and recreate backend BEFORE auth runs
-            if let Some(ref url) = server {
-                ctx.set_server(url)?;
+        Commands::Auth { ttl, enroll, .. } => {
+            if auth_url.is_some() && ctx.config.servers.len() > 1 && !cli.quiet {
+                println!(
+                    "  \x1b[90mhint: map a projects dir to this server: dmage server map {} ~/code/...\x1b[0m",
+                    ctx.server.as_ref().map(|(n, _)| n.as_str()).unwrap_or("<name>")
+                );
             }
-            cmd::auth::run(&mut ctx, server, ttl, enroll)
+            cmd::auth::run(&mut ctx, ttl, enroll)
         }
         Commands::Init {
             name,
             file,
             allow_empty,
-        } => cmd::init::run(&mut ctx, &name, &file, allow_empty),
+        } => {
+            let app = ctx.app_name(name.as_deref())?;
+            cmd::init::run(&mut ctx, &app, &file, allow_empty)
+        }
         Commands::Push {
             name,
             file,
             allow_empty,
-        } => cmd::push::run(&mut ctx, &name, &file, allow_empty),
+        } => {
+            let app = ctx.app_name(name.as_deref())?;
+            cmd::push::run(&mut ctx, &app, &file, allow_empty)
+        }
         Commands::Pull {
             name,
             rev,
             output,
             stdout,
             force,
-        } => cmd::pull::run(
-            &mut ctx,
-            &name,
-            rev.as_deref(),
-            output.as_deref(),
-            stdout,
-            force,
-        ),
+        } => {
+            let app = ctx.app_name(name.as_deref())?;
+            cmd::pull::run(
+                &mut ctx,
+                &app,
+                rev.as_deref(),
+                output.as_deref(),
+                stdout,
+                force,
+            )
+        }
         Commands::Exec { name, command } => cmd::exec::run(&mut ctx, &name, &command),
-        Commands::Diff { name, show_values } => cmd::diff::run(&mut ctx, &name, show_values),
-        Commands::History { name } => cmd::history::run(&ctx, &name),
-        Commands::Rollback { name, rev } => cmd::rollback::run(&mut ctx, &name, rev),
+        Commands::Diff { name, show_values } => {
+            let app = ctx.app_name(name.as_deref())?;
+            cmd::diff::run(&mut ctx, &app, show_values)
+        }
+        Commands::History { name } => {
+            let app = ctx.app_name(name.as_deref())?;
+            cmd::history::run(&ctx, &app)
+        }
+        Commands::Rollback { name, rev } => {
+            let app = ctx.app_name(name.as_deref())?;
+            cmd::rollback::run(&mut ctx, &app, rev)
+        }
         Commands::Apps => cmd::apps::run(&ctx),
         Commands::App { action } => match action {
             AppAction::Rm { name, yes } => cmd::app_rm::run(&ctx, &name, yes),
         },
         Commands::Token => cmd::token_cmd::run(&ctx),
         Commands::GenCiToken { app, env, ttl } => cmd::gen_ci_token::run(&ctx, &app, &env, &ttl),
+        Commands::Server { action } => {
+            let server_cmd = match action {
+                ServerAction::List => cmd::server::ServerCmd::List,
+                ServerAction::Add { name, url, path } => cmd::server::ServerCmd::Add {
+                    name,
+                    url,
+                    paths: path,
+                },
+                ServerAction::Map { name, path } => cmd::server::ServerCmd::Map { name, path },
+                ServerAction::Unmap { name, path } => cmd::server::ServerCmd::Unmap { name, path },
+                ServerAction::Rm { name, yes } => cmd::server::ServerCmd::Rm { name, yes },
+                ServerAction::Use { name } => cmd::server::ServerCmd::Use { name },
+                ServerAction::Rename { old, new } => cmd::server::ServerCmd::Rename { old, new },
+            };
+            cmd::server::run(&mut ctx, server_cmd)
+        }
         Commands::Status => cmd::status::run(&ctx),
-        Commands::Lock => cmd::lock::run(&ctx),
-        Commands::Logout => cmd::lock::run_logout(&ctx),
+        Commands::Lock { all } => cmd::lock::run(&ctx, all),
+        Commands::Logout { all } => cmd::lock::run_logout(&ctx, all),
         Commands::Clean => cmd::clean::run(&ctx),
         Commands::GenToken { name, ttl } => cmd::gen_token::run(&ctx, name.as_deref(), &ttl),
         Commands::Upgrade {
@@ -317,6 +449,22 @@ fn run(cli: Cli) -> Result<(), cmd::CliError> {
     }
 }
 
+/// Register/update a named server in the config BEFORE Context resolution,
+/// so `dmage auth --server <url>` works even from an ambiguous state.
+fn register_server(url: &str, name: &str) -> Result<(), cmd::CliError> {
+    let mut config =
+        dotmage_client::config::Config::load().map_err(|e| cmd::CliError::Config(e.to_string()))?;
+    config.migrate_legacy();
+    let entry = config.servers.entry(name.to_string()).or_default();
+    entry.url = url.to_string();
+    if config.active_server.is_none() {
+        config.active_server = Some(name.to_string());
+    }
+    config
+        .save()
+        .map_err(|e| cmd::CliError::Config(e.to_string()))
+}
+
 fn print_banner() {
     let version = env!("CARGO_PKG_VERSION");
     println!("\x1b[36m");
@@ -325,29 +473,37 @@ fn print_banner() {
     println!("  E2E-encrypted .env manager  v{version}");
     println!();
 
-    // Show connection status
-    let config = dotmage_client::config::Config::load().unwrap_or_default();
-    if let Some(ref url) = config.server_url {
-        let hash = dotmage_client::keychain::server_hash(url);
-        let has_ak = dotmage_client::keychain::load_ak(&hash)
-            .ok()
-            .flatten()
-            .is_some();
-        let has_token = dotmage_client::token::load_tokens(&hash)
-            .ok()
-            .flatten()
-            .is_some();
-
-        println!("  server   \x1b[90m{url}\x1b[0m");
-        if has_ak {
-            println!("  auth     \x1b[32m● authenticated\x1b[0m");
-        } else if has_token {
-            println!("  auth     \x1b[33m● token saved, run: dmage auth\x1b[0m");
-        } else {
-            println!("  auth     \x1b[31m● not connected\x1b[0m");
+    // Show connection status. Solo invariant: with 0–1 servers this looks
+    // exactly like the pre-multi-server banner.
+    let mut config = dotmage_client::config::Config::load().unwrap_or_default();
+    config.migrate_legacy(); // display only; persisted on first real command
+    match config.servers.len() {
+        0 => println!("  server   \x1b[90m(local mode)\x1b[0m"),
+        1 => {
+            let entry = config.servers.values().next().unwrap();
+            println!("  server   \x1b[90m{}\x1b[0m", entry.url);
+            println!("  auth     {}", cmd::server::auth_state(&entry.url));
         }
-    } else {
-        println!("  server   \x1b[90m(local mode)\x1b[0m");
+        _ => {
+            println!("  servers");
+            for (name, entry) in &config.servers {
+                let marker = if config.active_server.as_deref() == Some(name) {
+                    "*"
+                } else {
+                    " "
+                };
+                let paths = if entry.paths.is_empty() {
+                    String::new()
+                } else {
+                    format!("   \x1b[90m{}\x1b[0m", entry.paths.join(", "))
+                };
+                println!(
+                    "   {marker} {name:<12} \x1b[90m{:<26}\x1b[0m {}{paths}",
+                    cmd::host_of(&entry.url),
+                    cmd::server::auth_state(&entry.url)
+                );
+            }
+        }
     }
 
     // Update check

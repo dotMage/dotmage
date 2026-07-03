@@ -38,7 +38,8 @@ pub fn run(ctx: &mut Context, name: &str, file: &str, allow_empty: bool) -> Resu
         .push_revision(name, &ctx.active_env, &blob_str, 0)?;
 
     ctx.success(&format!(
-        "Created app '\x1b[1m{name}\x1b[0m'. Pushed revision 1 from {file} ({key_count} keys)."
+        "Created app '\x1b[1m{name}\x1b[0m'. Pushed revision 1 from {file} ({key_count} keys).{}",
+        ctx.server_suffix()
     ));
     Ok(())
 }

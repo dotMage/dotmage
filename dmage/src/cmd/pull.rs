@@ -60,8 +60,9 @@ pub fn run(
 
     let key_count = count_env_keys(&plaintext);
     ctx.success(&format!(
-        "Wrote {out_path} from revision {} ({key_count} keys).",
-        revision.rev_number
+        "Wrote {out_path} from revision {} ({key_count} keys).{}",
+        revision.rev_number,
+        ctx.server_suffix()
     ));
     Ok(())
 }

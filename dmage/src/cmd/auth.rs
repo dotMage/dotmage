@@ -12,12 +12,7 @@ use dotmage_crypto::kdf;
 
 use super::{CliError, Context};
 
-pub fn run(
-    ctx: &mut Context,
-    _server: Option<String>,
-    ttl: Option<String>,
-    enroll: Option<String>,
-) -> Result<(), CliError> {
+pub fn run(ctx: &mut Context, ttl: Option<String>, enroll: Option<String>) -> Result<(), CliError> {
     let ttl_secs = parse_ttl(ttl.as_deref()).unwrap_or(ctx.config.key_ttl_secs);
 
     let account_exists = ctx.backend.account_exists()?;
@@ -169,7 +164,7 @@ fn bootstrap(ctx: &mut Context, ttl_secs: u64) -> Result<(), CliError> {
     }
 
     // Ask for bootstrap secret if using server
-    let bootstrap_secret = if ctx.config.server_url.is_some() {
+    let bootstrap_secret = if ctx.server.is_some() {
         prompt_password("Bootstrap secret: ")?
     } else {
         String::new()
