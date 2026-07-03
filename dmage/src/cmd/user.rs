@@ -16,6 +16,14 @@ pub enum UserCmd {
         role: String,
         ttl: String,
     },
+    Role {
+        name: String,
+        role: String,
+    },
+    Rm {
+        name: String,
+        yes: bool,
+    },
 }
 
 fn http_backend(ctx: &Context) -> Result<&HttpBackend, CliError> {
@@ -41,7 +49,75 @@ pub fn run(ctx: &mut Context, cmd: UserCmd) -> Result<(), CliError> {
     match cmd {
         UserCmd::List => list(ctx),
         UserCmd::Invite { name, role, ttl } => invite_user(ctx, &name, &role, &ttl),
+        UserCmd::Role { name, role } => set_role(ctx, &name, &role),
+        UserCmd::Rm { name, yes } => remove_user(ctx, &name, yes),
     }
+}
+
+fn find_user_id(backend: &HttpBackend, name: &str) -> Result<String, CliError> {
+    let (users, _) = backend.users_list()?;
+    users
+        .iter()
+        .find(|u| u.name == name && u.status == "active")
+        .map(|u| u.id.clone())
+        .ok_or_else(|| CliError::Other(format!("no active user '{name}' — see: dmage user list")))
+}
+
+fn set_role(ctx: &Context, name: &str, role: &str) -> Result<(), CliError> {
+    if !matches!(role, "owner" | "editor" | "viewer") {
+        return Err(CliError::Other(format!(
+            "unknown role '{role}' (owner|editor|viewer)"
+        )));
+    }
+    let backend = http_backend(ctx)?;
+    require_team_feature(backend)?;
+    let user_id = find_user_id(backend, name)?;
+    backend.users_set_role(&user_id, role)?;
+    ctx.success(&format!("'{name}' is now {role}"));
+    Ok(())
+}
+
+/// Offboarding (spec K.5 / umbrella plan Phase 5): the safe path is the
+/// default path — removal chains straight into a key rotation offer.
+fn remove_user(ctx: &mut Context, name: &str, yes: bool) -> Result<(), CliError> {
+    {
+        let backend = http_backend(ctx)?;
+        require_team_feature(backend)?;
+        let user_id = find_user_id(backend, name)?;
+
+        if !yes {
+            eprintln!("  Removing '{name}': their wraps are deleted and devices revoked.");
+            eprintln!("  Their CACHED key still decrypts data pushed before a rotation.");
+            eprint!("  Remove? [y/N] ");
+            let mut input = String::new();
+            std::io::stdin().read_line(&mut input)?;
+            if !input.trim().eq_ignore_ascii_case("y") {
+                return Err(CliError::Other("aborted".into()));
+            }
+        }
+
+        let revoked = backend.users_remove(&user_id)?;
+        ctx.success(&format!(
+            "removed '{name}' ({revoked} device(s) revoked)"
+        ));
+    }
+
+    // Rotation is what actually locks them out of FUTURE data.
+    if yes {
+        ctx.print("IMPORTANT: run `dmage rotate-key` — their cached key still works until then");
+        ctx.print("also rotate the secret VALUES they saw, and destroy pre-rotation backups");
+        return Ok(());
+    }
+    eprint!("  Rotate the Account Key now (recommended)? [Y/n] ");
+    let mut input = String::new();
+    std::io::stdin().read_line(&mut input)?;
+    if input.trim().is_empty() || input.trim().eq_ignore_ascii_case("y") {
+        super::rotate_key::run(ctx, true)?;
+        ctx.print("also rotate the secret VALUES they saw, and destroy pre-rotation backups");
+    } else {
+        ctx.print("SKIPPED rotation — their cached key still decrypts everything until you run: dmage rotate-key");
+    }
+    Ok(())
 }
 
 pub fn whoami(ctx: &Context) -> Result<(), CliError> {

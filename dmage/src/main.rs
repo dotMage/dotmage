@@ -227,6 +227,21 @@ enum UserAction {
         #[arg(long, default_value = "24h")]
         ttl: String,
     },
+    /// Change a member's role.
+    Role {
+        /// Member handle.
+        name: String,
+        /// New role: owner | editor | viewer.
+        role: String,
+    },
+    /// Remove a member: wraps deleted, devices revoked, rotation offered.
+    Rm {
+        /// Member handle.
+        name: String,
+        /// Skip confirmations (prints the follow-up steps instead).
+        #[arg(long)]
+        yes: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -508,6 +523,8 @@ fn run(cli: Cli) -> Result<(), cmd::CliError> {
                 UserAction::Invite { name, role, ttl } => {
                     cmd::user::UserCmd::Invite { name, role, ttl }
                 }
+                UserAction::Role { name, role } => cmd::user::UserCmd::Role { name, role },
+                UserAction::Rm { name, yes } => cmd::user::UserCmd::Rm { name, yes },
             },
         ),
         Commands::RotateKey { yes } => cmd::rotate_key::run(&mut ctx, yes),

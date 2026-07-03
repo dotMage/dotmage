@@ -13,6 +13,26 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning: [S
 
 ### Security
 
+## [2.0.0] - 2026-07-03
+
+### Added
+- **Team mode**: invite colleagues with their own master passwords over a shared vault.
+  `dmage user invite/list/role/rm`, `dmage auth --invite <token>`, `dmage whoami`.
+  Invitations are one-time sealed tokens (the server cannot open them); roles
+  (owner/editor/viewer) are enforced server-side. Requires dotmage-server with
+  `DOTMAGE_MODE=team`.
+- Offboarding chain: `dmage user rm` deletes the member's key wraps, revokes their
+  devices and offers a key rotation on the spot — the safe path is the default path.
+
+### Changed
+- Solo setups are untouched: with a solo-mode server (the default) nothing about team
+  mode is visible, and existing accounts migrate to a "team of one" automatically.
+
+### Security
+- A removed member's cached key stops decrypting anything pushed after the chained
+  rotation. Rotate the secret values they saw and destroy pre-rotation backups — the
+  docs offboarding runbook covers both.
+
 ## [1.4.0] - 2026-07-03
 
 ### Added
@@ -73,6 +93,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning: [S
 First stable release line: auth, init/push/pull/exec/diff/history/rollback, environments,
 enrollment tokens, local FsBackend mode, Homebrew formula.
 
-[Unreleased]: https://github.com/dotMage/dotmage/compare/v1.4.0...HEAD
+[Unreleased]: https://github.com/dotMage/dotmage/compare/v2.0.0...HEAD
+[2.0.0]: https://github.com/dotMage/dotmage/compare/v1.4.0...v2.0.0
 [1.4.0]: https://github.com/dotMage/dotmage/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/dotMage/dotmage/compare/v1.2.1...v1.3.0

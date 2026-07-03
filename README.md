@@ -63,6 +63,8 @@ dmage exec myapp -- npm run dev
 | `dmage server list/add/map/rm/use` | Manage multiple servers (see below) |
 | `dmage upgrade` | Self-update from GitHub releases (sha256-verified) |
 | `dmage rotate-key` | Re-encrypt everything with a fresh Account Key |
+| `dmage user invite/list/role/rm` | Team members (team-mode servers) |
+| `dmage whoami` | Your user, role and device on this server |
 
 Inside a project directory the app name defaults to the directory name — `dmage push`
 with no arguments just works.
@@ -106,6 +108,22 @@ Resolution order: `--server <name>` flag → `DOTMAGE_SERVER` env var → longes
 mapped path → `dmage server use <name>` default. Ambiguity is an error, never a guess.
 With 2+ servers every push/pull prints which server it hit (`→ work (secrets.corp.com)`),
 and `dmage status` explains why that server was picked.
+
+## Team mode
+
+One product, two modes — solo is a team of one, and nothing changes until you invite
+someone. Each member wraps the shared vault key with **their own password**:
+
+```bash
+# server: DOTMAGE_MODE=team
+dmage user invite kolya --role editor    # one-time token, send privately
+# on their machine:
+dmage auth --invite dmage_uinv_...       # they pick their own password
+dmage user rm kolya                      # offboarding: wraps + devices + rotation offer
+```
+
+Roles are enforced by the server (owner/editor/viewer). Honest limit: roles are
+authorization, not cryptography — every member holds the vault key.
 
 ## Key rotation
 

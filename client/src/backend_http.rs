@@ -343,6 +343,52 @@ impl HttpBackend {
         serde_json::from_str(&body).map_err(|e| BackendError::Other(e.to_string()))
     }
 
+    /// Change a member's role (owner only).
+    pub fn users_set_role(&self, user_id: &str, role: &str) -> Result<(), BackendError> {
+        let (hdr, val) = self.auth_header();
+        let resp = self
+            .client
+            .patch(self.url(&format!("/users/{user_id}")))
+            .header(&hdr, &val)
+            .json(&serde_json::json!({"role": role}))
+            .send()
+            .map_err(|e| BackendError::Other(e.to_string()))?;
+        let status = resp.status();
+        if !status.is_success() {
+            let body = resp
+                .text()
+                .map_err(|e| BackendError::Other(e.to_string()))?;
+            return Err(Self::extract_error(status, &body));
+        }
+        Ok(())
+    }
+
+    /// Remove a member: wraps dropped, devices revoked (owner only).
+    /// Returns the number of revoked devices.
+    pub fn users_remove(&self, user_id: &str) -> Result<u64, BackendError> {
+        let (hdr, val) = self.auth_header();
+        let resp = self
+            .client
+            .delete(self.url(&format!("/users/{user_id}")))
+            .header(&hdr, &val)
+            .send()
+            .map_err(|e| BackendError::Other(e.to_string()))?;
+        let status = resp.status();
+        let body = resp
+            .text()
+            .map_err(|e| BackendError::Other(e.to_string()))?;
+        if !status.is_success() {
+            return Err(Self::extract_error(status, &body));
+        }
+        #[derive(Deserialize)]
+        struct Resp {
+            devices_revoked: u64,
+        }
+        let parsed: Resp =
+            serde_json::from_str(&body).map_err(|e| BackendError::Other(e.to_string()))?;
+        Ok(parsed.devices_revoked)
+    }
+
     // --- Methods outside Backend trait (device management) ---
 
     /// Generate an enrollment token for adding a new device.
