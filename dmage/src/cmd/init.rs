@@ -3,9 +3,9 @@
 use dotmage_crypto::blob;
 use dotmage_crypto::secret;
 
-use super::{CliError, Context};
+use super::{count_env_keys, empty_guard, CliError, Context};
 
-pub fn run(ctx: &mut Context, name: &str, file: &str) -> Result<(), CliError> {
+pub fn run(ctx: &mut Context, name: &str, file: &str, allow_empty: bool) -> Result<(), CliError> {
     let ak = ctx.require_ak()?;
 
     // Check .env exists
@@ -20,6 +20,7 @@ pub fn run(ctx: &mut Context, name: &str, file: &str) -> Result<(), CliError> {
     gitignore_guard(file)?;
 
     let plaintext = std::fs::read(path)?;
+    empty_guard(file, &plaintext, allow_empty)?;
     let key_count = count_env_keys(&plaintext);
 
     // Create app
@@ -40,16 +41,6 @@ pub fn run(ctx: &mut Context, name: &str, file: &str) -> Result<(), CliError> {
         "Created app '\x1b[1m{name}\x1b[0m'. Pushed revision 1 from {file} ({key_count} keys)."
     ));
     Ok(())
-}
-
-fn count_env_keys(data: &[u8]) -> usize {
-    String::from_utf8_lossy(data)
-        .lines()
-        .filter(|l| {
-            let l = l.trim();
-            !l.is_empty() && !l.starts_with('#') && l.contains('=')
-        })
-        .count()
 }
 
 /// Check if .env is in .gitignore, warn if not (F.7).

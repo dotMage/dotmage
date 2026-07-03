@@ -50,6 +50,9 @@ enum Commands {
         /// Path to .env file (default: ./.env).
         #[arg(long, default_value = ".env")]
         file: String,
+        /// Allow an empty file (0 keys).
+        #[arg(long)]
+        allow_empty: bool,
     },
     /// Push local .env to a new revision.
     Push {
@@ -58,6 +61,9 @@ enum Commands {
         /// Path to .env file (default: ./.env).
         #[arg(long, default_value = ".env")]
         file: String,
+        /// Allow pushing an empty file (0 keys).
+        #[arg(long)]
+        allow_empty: bool,
     },
     /// Pull secrets and write to .env file.
     Pull {
@@ -235,8 +241,16 @@ fn run(cli: Cli) -> Result<(), cmd::CliError> {
             }
             cmd::auth::run(&mut ctx, server, ttl, enroll)
         }
-        Commands::Init { name, file } => cmd::init::run(&mut ctx, &name, &file),
-        Commands::Push { name, file } => cmd::push::run(&mut ctx, &name, &file),
+        Commands::Init {
+            name,
+            file,
+            allow_empty,
+        } => cmd::init::run(&mut ctx, &name, &file, allow_empty),
+        Commands::Push {
+            name,
+            file,
+            allow_empty,
+        } => cmd::push::run(&mut ctx, &name, &file, allow_empty),
         Commands::Pull {
             name,
             rev,

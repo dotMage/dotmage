@@ -4,11 +4,22 @@ use dotmage_client::types::RevSpec;
 use dotmage_crypto::blob;
 use dotmage_crypto::secret;
 
-use super::{CliError, Context};
+use super::{count_env_keys, empty_guard, CliError, Context};
 
-pub fn run(ctx: &mut Context, name: &str, file: &str) -> Result<(), CliError> {
+pub fn run(ctx: &mut Context, name: &str, file: &str, allow_empty: bool) -> Result<(), CliError> {
     let ak = ctx.require_ak()?;
     let env_name = ctx.active_env.clone();
+
+    let path = std::path::Path::new(file);
+    if !path.exists() {
+        return Err(CliError::Other(format!("no {file} found")));
+    }
+
+    let plaintext = std::fs::read(path)?;
+
+    // Empty guard runs before the prod-guard prompt: don't ask the user to
+    // confirm a push that would fail anyway.
+    empty_guard(file, &plaintext, allow_empty)?;
 
     // Prod-guard
     if ctx.config.is_protected_env(&env_name) {
@@ -19,13 +30,6 @@ pub fn run(ctx: &mut Context, name: &str, file: &str) -> Result<(), CliError> {
             return Err(CliError::Other("aborted".into()));
         }
     }
-
-    let path = std::path::Path::new(file);
-    if !path.exists() {
-        return Err(CliError::Other(format!("no {file} found")));
-    }
-
-    let plaintext = std::fs::read(path)?;
 
     // Get current latest rev
     let envs = ctx.backend.list_envs(name)?;
@@ -64,14 +68,4 @@ pub fn run(ctx: &mut Context, name: &str, file: &str) -> Result<(), CliError> {
         meta.rev_number
     ));
     Ok(())
-}
-
-fn count_env_keys(data: &[u8]) -> usize {
-    String::from_utf8_lossy(data)
-        .lines()
-        .filter(|l| {
-            let l = l.trim();
-            !l.is_empty() && !l.starts_with('#') && l.contains('=')
-        })
-        .count()
 }

@@ -37,7 +37,7 @@ dmage exec myapp -- npm run dev
 |---------|-------------|
 | `dmage auth` | Authenticate and cache key in OS keychain |
 | `dmage init <app>` | Create app from current `.env` |
-| `dmage push <app>` | Push local `.env` as new revision |
+| `dmage push <app>` | Push local `.env` as new revision (empty file → error; `--allow-empty` to override) |
 | `dmage pull <app>` | Pull and decrypt to `.env` |
 | `dmage exec <app> -- <cmd>` | Run command with secrets in memory |
 | `dmage diff <app>` | Compare local vs remote (values masked) |

@@ -4,7 +4,7 @@ use dotmage_client::types::RevSpec;
 use dotmage_crypto::blob;
 use dotmage_crypto::secret;
 
-use super::{CliError, Context};
+use super::{count_env_keys, CliError, Context};
 
 pub fn run(
     ctx: &mut Context,
@@ -64,14 +64,4 @@ pub fn run(
         revision.rev_number
     ));
     Ok(())
-}
-
-fn count_env_keys(data: &[u8]) -> usize {
-    String::from_utf8_lossy(data)
-        .lines()
-        .filter(|l| {
-            let l = l.trim();
-            !l.is_empty() && !l.starts_with('#') && l.contains('=')
-        })
-        .count()
 }

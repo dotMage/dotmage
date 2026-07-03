@@ -185,6 +185,28 @@ impl Context {
     }
 }
 
+/// Count KEY=VALUE lines in .env content (comments and blanks excluded).
+pub fn count_env_keys(data: &[u8]) -> usize {
+    String::from_utf8_lossy(data)
+        .lines()
+        .filter(|l| {
+            let l = l.trim();
+            !l.is_empty() && !l.starts_with('#') && l.contains('=')
+        })
+        .count()
+}
+
+/// Empty-push guard: a file with 0 keys is almost always an accident
+/// (truncated file, wrong CWD) that would wipe remote secrets on next pull.
+pub fn empty_guard(file: &str, data: &[u8], allow_empty: bool) -> Result<(), CliError> {
+    if !allow_empty && count_env_keys(data) == 0 {
+        return Err(CliError::Other(format!(
+            "{file} is empty (0 keys) — refusing to push.\n         if this is intentional, re-run with --allow-empty"
+        )));
+    }
+    Ok(())
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum CliError {
     #[error("{0}")]
@@ -215,5 +237,39 @@ impl CliError {
             }
             _ => ExitCode::from(1),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn empty_file_has_zero_keys() {
+        assert_eq!(count_env_keys(b""), 0);
+        assert_eq!(count_env_keys(b"\n\n  \n"), 0);
+    }
+
+    #[test]
+    fn comments_only_has_zero_keys() {
+        assert_eq!(count_env_keys(b"# a comment\n  # another\n"), 0);
+    }
+
+    #[test]
+    fn empty_value_counts_as_key() {
+        assert_eq!(count_env_keys(b"FOO=\n"), 1);
+        assert_eq!(count_env_keys(b"A=1\nB=2\n# c\n"), 2);
+    }
+
+    #[test]
+    fn empty_guard_blocks_without_flag() {
+        assert!(empty_guard(".env", b"# only comments\n", false).is_err());
+        assert!(empty_guard(".env", b"", false).is_err());
+    }
+
+    #[test]
+    fn empty_guard_respects_allow_empty() {
+        assert!(empty_guard(".env", b"", true).is_ok());
+        assert!(empty_guard(".env", b"A=1\n", false).is_ok());
     }
 }
