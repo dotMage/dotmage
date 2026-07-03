@@ -81,11 +81,32 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           merge-multiple: true
+      - name: Generate SHA256SUMS
+        run: sha256sum dmage-* > SHA256SUMS
+      - name: Extract release notes from CHANGELOG
+        id: notes
+        run: |
+          VERSION="${{ needs.version.outputs.version }}"
+          # Section between "## [VERSION]" and the next "## [" heading
+          awk -v ver="$VERSION" '
+            $0 ~ "^## \\[" ver "\\]" {found=1; next}
+            found && /^## \[/ {exit}
+            found {print}
+          ' CHANGELOG.md > notes.md
+          if [ -s notes.md ]; then
+            echo "has_notes=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "No CHANGELOG section for ${VERSION} — falling back to generated notes"
+            echo "has_notes=false" >> "$GITHUB_OUTPUT"
+          fi
       - uses: softprops/action-gh-release@v2
         with:
           tag_name: "v${{ needs.version.outputs.version }}"
-          files: dmage-*
-          generate_release_notes: true
+          files: |
+            dmage-*
+            SHA256SUMS
+          body_path: ${{ steps.notes.outputs.has_notes == 'true' && 'notes.md' || '' }}
+          generate_release_notes: ${{ steps.notes.outputs.has_notes != 'true' }}
 
   homebrew:
     needs: [version, release]

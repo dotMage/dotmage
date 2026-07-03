@@ -56,6 +56,12 @@ dmage exec myapp -- npm run dev
 - AK cached in OS keychain with configurable TTL
 - `.gitignore` guard on push/init
 
+## Contributing
+
+Every user-visible change updates `CHANGELOG.md` under `[Unreleased]` in the same PR —
+entries are written for users, not committers. Release process:
+[dotmage-spec/RELEASING.md](https://github.com/dotMage/dotmage-spec/blob/main/RELEASING.md).
+
 ## License
 
 AGPL-3.0 — see [LICENSE](LICENSE).
