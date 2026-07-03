@@ -13,6 +13,19 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning: [S
 
 ### Security
 
+## [1.4.0] - 2026-07-03
+
+### Added
+- `dmage rotate-key` — re-encrypt every revision with a fresh Account Key (spec Appendix L).
+  Client-driven, resumable after interruption, key generations tracked per blob. Requires
+  dotmage-server with the `rotation` feature.
+
+### Security
+- Closes the documented v1 gap "a leaked Account Key decrypts all history forever":
+  rotation makes old cached keys useless for anything pushed after it. Note: backups
+  taken before a rotation remain decryptable by the old key — destroy or re-encrypt them
+  when rotating after a device compromise.
+
 ## [1.3.0] - 2026-07-03
 
 ### Added
@@ -60,5 +73,6 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning: [S
 First stable release line: auth, init/push/pull/exec/diff/history/rollback, environments,
 enrollment tokens, local FsBackend mode, Homebrew formula.
 
-[Unreleased]: https://github.com/dotMage/dotmage/compare/v1.3.0...HEAD
+[Unreleased]: https://github.com/dotMage/dotmage/compare/v1.4.0...HEAD
+[1.4.0]: https://github.com/dotMage/dotmage/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/dotMage/dotmage/compare/v1.2.1...v1.3.0

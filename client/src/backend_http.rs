@@ -368,6 +368,8 @@ impl Backend for HttpBackend {
             salt_rc: Option<String>,
             nonce_rc: Option<String>,
             wrapped_ak_rc: Option<String>,
+            #[serde(default = "crate::types::default_key_gen")]
+            key_gen: u64,
         }
 
         let flat: FlatKeys =
@@ -385,6 +387,7 @@ impl Backend for HttpBackend {
             salt_rc: flat.salt_rc,
             nonce_rc: flat.nonce_rc,
             wrapped_ak_rc: flat.wrapped_ak_rc,
+            key_gen: flat.key_gen,
         })
     }
 
@@ -649,5 +652,86 @@ impl Backend for HttpBackend {
             device_id: String::new(),
             rollback_of: Some(parsed.copied_from),
         })
+    }
+
+    // --- AK rotation (spec L) ---
+
+    fn rotate_begin(&self, req: &RotateBeginReq) -> Result<RotateStatus, BackendError> {
+        let (status, body) = self.auth_post_json(
+            "/account/rotate/begin",
+            &serde_json::to_value(req).map_err(|e| BackendError::Other(e.to_string()))?,
+        )?;
+        if !status.is_success() {
+            return Err(Self::extract_error(status, &body));
+        }
+        #[derive(Deserialize)]
+        struct Resp {
+            new_key_gen: u64,
+            stale_count: u64,
+        }
+        let parsed: Resp =
+            serde_json::from_str(&body).map_err(|e| BackendError::Other(e.to_string()))?;
+        Ok(RotateStatus {
+            in_progress: true,
+            current_key_gen: parsed.new_key_gen.saturating_sub(1),
+            new_key_gen: Some(parsed.new_key_gen),
+            stale_count: parsed.stale_count,
+            stale: Vec::new(),
+            pending_nonce_ak: None,
+            pending_wrapped_ak: None,
+        })
+    }
+
+    fn rotate_status(&self) -> Result<RotateStatus, BackendError> {
+        let (status, body) = self.auth_get("/account/rotate")?;
+        if !status.is_success() {
+            return Err(Self::extract_error(status, &body));
+        }
+        serde_json::from_str(&body).map_err(|e| BackendError::Other(e.to_string()))
+    }
+
+    fn rotate_put_blob(
+        &self,
+        app: &str,
+        env: &str,
+        rev: u64,
+        blob: &str,
+        key_gen: u64,
+    ) -> Result<(), BackendError> {
+        let (hdr, val) = self.auth_header();
+        let resp = self
+            .client
+            .put(self.url(&format!(
+                "/apps/{}/envs/{}/revisions/{rev}/blob",
+                encode_path(app),
+                encode_path(env)
+            )))
+            .header(&hdr, &val)
+            .json(&serde_json::json!({"blob": blob, "key_gen": key_gen}))
+            .send()
+            .map_err(|e| BackendError::Other(e.to_string()))?;
+        let status = resp.status();
+        if !status.is_success() {
+            let body = resp
+                .text()
+                .map_err(|e| BackendError::Other(e.to_string()))?;
+            return Err(Self::extract_error(status, &body));
+        }
+        Ok(())
+    }
+
+    fn rotate_complete(&self) -> Result<u64, BackendError> {
+        let (status, body) =
+            self.auth_post_json("/account/rotate/complete", &serde_json::json!({}))?;
+        if !status.is_success() {
+            return Err(Self::extract_error(status, &body));
+        }
+        #[derive(Deserialize)]
+        struct Resp {
+            current_key_gen: u64,
+        }
+        let parsed: Resp =
+            serde_json::from_str(&body).map_err(|e| BackendError::Other(e.to_string()))?;
+        Ok(parsed.current_key_gen)
     }
 }

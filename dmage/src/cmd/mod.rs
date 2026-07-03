@@ -14,6 +14,7 @@ pub mod lock;
 pub mod pull;
 pub mod push;
 pub mod rollback;
+pub mod rotate_key;
 pub mod server;
 pub mod status;
 pub mod token_cmd;
@@ -47,6 +48,8 @@ pub struct Context {
     pub json: bool,
     /// Cached AK (loaded on demand).
     ak: Option<[u8; 32]>,
+    /// Generation of the cached AK; None = don't check (CI tokens carry no gen).
+    ak_gen: Option<u64>,
 }
 
 impl Context {
@@ -97,6 +100,7 @@ impl Context {
             quiet,
             json,
             ak: None,
+            ak_gen: None,
         })
     }
 
@@ -172,6 +176,7 @@ impl Context {
             quiet,
             json,
             ak: Some(ak),
+            ak_gen: None, // CI tokens carry no generation — skip the check
         })
     }
 
@@ -182,9 +187,10 @@ impl Context {
         }
 
         let server_hash = keychain::server_hash(&self.config.server_id());
-        match keychain::load_ak(&server_hash) {
-            Ok(Some(ak)) => {
+        match keychain::load_ak_gen(&server_hash) {
+            Ok(Some((ak, gen))) => {
                 self.ak = Some(ak);
+                self.ak_gen = Some(gen);
                 Ok(ak)
             }
             Ok(None) => Err(CliError::NotAuthenticated),
@@ -198,6 +204,17 @@ impl Context {
         let ak = self.require_ak()?;
         let env_name = self.active_env.clone();
         let revision = self.backend.pull_revision(app, &env_name, rev)?;
+
+        // Key-generation check (spec L.4): a blob newer than our cached AK means
+        // a rotation completed elsewhere — re-auth picks up the new wrap.
+        if let Some(gen) = self.ak_gen {
+            if revision.key_gen > gen {
+                return Err(CliError::Other(
+                    "key generation changed (AK was rotated) — run: dmage auth".into(),
+                ));
+            }
+        }
+
         let decoded_blob =
             blob::decode_blob(&revision.blob).map_err(|e| CliError::Crypto(e.to_string()))?;
         let plaintext =

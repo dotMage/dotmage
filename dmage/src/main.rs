@@ -172,6 +172,12 @@ enum Commands {
         #[arg(long, default_value = "24h")]
         ttl: String,
     },
+    /// Rotate the Account Key: re-encrypt all revisions with a fresh key.
+    RotateKey {
+        /// Skip the confirmation prompt.
+        #[arg(short = 'y', long)]
+        yes: bool,
+    },
     /// Upgrade dmage to the latest release.
     Upgrade {
         /// Only check for a new version, don't install.
@@ -444,6 +450,7 @@ fn run(cli: Cli) -> Result<(), cmd::CliError> {
         Commands::Logout { all } => cmd::lock::run_logout(&ctx, all),
         Commands::Clean => cmd::clean::run(&ctx),
         Commands::GenToken { name, ttl } => cmd::gen_token::run(&ctx, name.as_deref(), &ttl),
+        Commands::RotateKey { yes } => cmd::rotate_key::run(&mut ctx, yes),
         Commands::Upgrade {
             check,
             version,

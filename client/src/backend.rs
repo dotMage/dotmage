@@ -49,6 +49,19 @@ pub trait Backend: AsAny {
     fn list_revisions(&self, app: &str, env: &str) -> Result<Vec<RevisionMeta>, BackendError>;
 
     fn rollback(&self, app: &str, env: &str, to_rev: u64) -> Result<RevisionMeta, BackendError>;
+
+    // --- AK rotation (spec L) ---
+    fn rotate_begin(&self, req: &RotateBeginReq) -> Result<RotateStatus, BackendError>;
+    fn rotate_status(&self) -> Result<RotateStatus, BackendError>;
+    fn rotate_put_blob(
+        &self,
+        app: &str,
+        env: &str,
+        rev: u64,
+        blob: &str,
+        key_gen: u64,
+    ) -> Result<(), BackendError>;
+    fn rotate_complete(&self) -> Result<u64, BackendError>;
 }
 
 #[derive(Debug, thiserror::Error)]

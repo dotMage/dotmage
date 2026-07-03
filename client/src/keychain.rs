@@ -13,6 +13,9 @@ use std::time::{SystemTime, UNIX_EPOCH};
 struct AkStore {
     ak: String,
     expiry: u64,
+    /// AK generation (spec L); pre-rotation caches default to 1.
+    #[serde(default = "crate::types::default_key_gen")]
+    key_gen: u64,
 }
 
 fn ak_file_path(server_hash: &str) -> PathBuf {
@@ -28,9 +31,20 @@ fn now_secs() -> u64 {
 
 /// Store AK with expiry.
 pub fn store_ak(server_hash: &str, ak: &[u8; 32], ttl_secs: u64) -> Result<(), KeychainError> {
+    store_ak_gen(server_hash, ak, 1, ttl_secs)
+}
+
+/// Store AK with its key generation (spec L).
+pub fn store_ak_gen(
+    server_hash: &str,
+    ak: &[u8; 32],
+    key_gen: u64,
+    ttl_secs: u64,
+) -> Result<(), KeychainError> {
     let store = AkStore {
         ak: B64.encode(ak),
         expiry: now_secs() + ttl_secs,
+        key_gen,
     };
     let path = ak_file_path(server_hash);
     if let Some(parent) = path.parent() {
@@ -51,6 +65,11 @@ pub fn store_ak(server_hash: &str, ak: &[u8; 32], ttl_secs: u64) -> Result<(), K
 
 /// Load AK, checking expiry. Returns None if expired or missing.
 pub fn load_ak(server_hash: &str) -> Result<Option<[u8; 32]>, KeychainError> {
+    Ok(load_ak_gen(server_hash)?.map(|(ak, _)| ak))
+}
+
+/// Load AK with its key generation. Returns None if expired or missing.
+pub fn load_ak_gen(server_hash: &str) -> Result<Option<([u8; 32], u64)>, KeychainError> {
     let path = ak_file_path(server_hash);
     if !path.exists() {
         return Ok(None);
@@ -65,7 +84,7 @@ pub fn load_ak(server_hash: &str) -> Result<Option<[u8; 32]>, KeychainError> {
         return Ok(None);
     }
 
-    decode_ak(&store.ak).map(Some)
+    decode_ak(&store.ak).map(|ak| Some((ak, store.key_gen)))
 }
 
 /// Delete stored AK.

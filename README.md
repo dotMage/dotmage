@@ -62,6 +62,7 @@ dmage exec myapp -- npm run dev
 | `dmage logout` | Full logout (key + tokens) |
 | `dmage server list/add/map/rm/use` | Manage multiple servers (see below) |
 | `dmage upgrade` | Self-update from GitHub releases (sha256-verified) |
+| `dmage rotate-key` | Re-encrypt everything with a fresh Account Key |
 
 Inside a project directory the app name defaults to the directory name — `dmage push`
 with no arguments just works.
@@ -105,6 +106,17 @@ Resolution order: `--server <name>` flag → `DOTMAGE_SERVER` env var → longes
 mapped path → `dmage server use <name>` default. Ambiguity is an error, never a guess.
 With 2+ servers every push/pull prints which server it hit (`→ work (secrets.corp.com)`),
 and `dmage status` explains why that server was picked.
+
+## Key rotation
+
+```bash
+dmage rotate-key
+```
+
+Re-encrypts every revision with a fresh Account Key (client-side — the server never can).
+Resumable after interruption; run it when a device with a cached key leaves your control.
+After rotation: old cached keys and **pre-rotation backups** no longer match new data,
+CI tokens must be regenerated, other devices re-run `dmage auth`.
 
 ## Security
 

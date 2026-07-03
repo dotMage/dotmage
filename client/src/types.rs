@@ -16,6 +16,13 @@ pub struct AccountKeys {
     pub nonce_rc: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub wrapped_ak_rc: Option<String>,
+    /// AK generation this wrap unwraps (spec L; pre-rotation servers omit it).
+    #[serde(default = "default_key_gen")]
+    pub key_gen: u64,
+}
+
+pub fn default_key_gen() -> u64 {
+    1
 }
 
 /// Argon2 parameters DTO.
@@ -92,6 +99,48 @@ pub struct Revision {
     pub device_id: String,
     pub parent_rev: Option<u64>,
     pub rollback_of: Option<u64>,
+    /// AK generation the blob is encrypted with (spec L).
+    #[serde(default = "default_key_gen")]
+    pub key_gen: u64,
+}
+
+/// One stale revision to re-encrypt during rotation (spec L.1).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StaleRevision {
+    pub app: String,
+    pub env: String,
+    pub rev_number: u64,
+}
+
+/// Rotation status (GET /account/rotate).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RotateStatus {
+    pub in_progress: bool,
+    pub current_key_gen: u64,
+    #[serde(default)]
+    pub new_key_gen: Option<u64>,
+    #[serde(default)]
+    pub stale_count: u64,
+    #[serde(default)]
+    pub stale: Vec<StaleRevision>,
+    #[serde(default)]
+    pub pending_nonce_ak: Option<String>,
+    #[serde(default)]
+    pub pending_wrapped_ak: Option<String>,
+}
+
+/// Body of POST /account/rotate/begin (spec L.1).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RotateBeginReq {
+    pub new_key_gen: u64,
+    pub nonce_ak: String,
+    pub wrapped_ak: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub salt_rc: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub nonce_rc: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub wrapped_ak_rc: Option<String>,
 }
 
 /// Which revision to pull.

@@ -131,7 +131,7 @@ fn unlock_ak(ctx: &mut Context, ttl_secs: u64) -> Result<(), CliError> {
         .map_err(|_| CliError::Other("invalid password".into()))?;
 
     let server_hash = keychain::server_hash(&ctx.config.server_id());
-    keychain::store_ak(&server_hash, &ak, ttl_secs)
+    keychain::store_ak_gen(&server_hash, &ak, keys.key_gen, ttl_secs)
         .map_err(|e| CliError::Keychain(e.to_string()))?;
 
     Ok(())
@@ -222,7 +222,7 @@ fn bootstrap(ctx: &mut Context, ttl_secs: u64) -> Result<(), CliError> {
     Ok(())
 }
 
-fn prompt_password(prompt: &str) -> Result<String, CliError> {
+pub(crate) fn prompt_password(prompt: &str) -> Result<String, CliError> {
     rpassword::prompt_password(prompt).map_err(CliError::Io)
 }
 

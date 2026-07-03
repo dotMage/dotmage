@@ -32,6 +32,19 @@ struct FsAccount {
     account_id: String,
     keys: AccountKeys,
     bootstrap_used: bool,
+    /// In-progress AK rotation (spec L), pending wraps included.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    rotation: Option<FsRotation>,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+struct FsRotation {
+    new_key_gen: u64,
+    nonce_ak: String,
+    wrapped_ak: String,
+    salt_rc: Option<String>,
+    nonce_rc: Option<String>,
+    wrapped_ak_rc: Option<String>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -49,6 +62,8 @@ struct FsRevision {
     device_id: String,
     parent_rev: Option<u64>,
     rollback_of: Option<u64>,
+    #[serde(default = "crate::types::default_key_gen")]
+    key_gen: u64,
 }
 
 impl FsBackend {
@@ -133,6 +148,26 @@ impl FsBackend {
         Ok(())
     }
 
+    /// All revisions still encrypted with a generation below `new_gen`.
+    fn stale_revisions(&self, new_gen: u64) -> Result<Vec<StaleRevision>, BackendError> {
+        let mut out = Vec::new();
+        for app in self.list_apps()? {
+            for env in self.list_envs(&app.name)? {
+                for meta in self.list_revisions(&app.name, &env.name)? {
+                    let rev = self.load_revision(&app.name, &env.name, meta.rev_number)?;
+                    if rev.key_gen < new_gen {
+                        out.push(StaleRevision {
+                            app: app.name.clone(),
+                            env: env.name.clone(),
+                            rev_number: rev.rev_number,
+                        });
+                    }
+                }
+            }
+        }
+        Ok(out)
+    }
+
     fn now_iso() -> String {
         Utc::now().to_rfc3339()
     }
@@ -176,8 +211,10 @@ impl Backend for FsBackend {
                 salt_rc: req.salt_rc.clone(),
                 nonce_rc: req.nonce_rc.clone(),
                 wrapped_ak_rc: req.wrapped_ak_rc.clone(),
+                key_gen: 1,
             },
             bootstrap_used: true,
+            rotation: None,
         };
         self.save_account(&account)?;
 
@@ -291,6 +328,7 @@ impl Backend for FsBackend {
                     device_id: "local".into(),
                     parent_rev: None,
                     rollback_of: None,
+                    key_gen: src_rev.key_gen,
                 };
                 self.save_revision(app, env, &new_rev)?;
                 self.save_env_meta(
@@ -332,6 +370,12 @@ impl Backend for FsBackend {
         blob: &str,
         parent_rev: u64,
     ) -> Result<RevisionMeta, BackendError> {
+        let account = self.load_account()?;
+        if account.rotation.is_some() {
+            return Err(BackendError::Conflict(
+                "key rotation in progress — retry after it completes".into(),
+            ));
+        }
         let meta = self.load_env_meta(app, env)?;
         if meta.latest_rev != parent_rev {
             return Err(BackendError::Conflict(format!(
@@ -355,6 +399,7 @@ impl Backend for FsBackend {
                 None
             },
             rollback_of: None,
+            key_gen: account.keys.key_gen,
         };
         self.save_revision(app, env, &rev)?;
         self.save_env_meta(
@@ -398,6 +443,7 @@ impl Backend for FsBackend {
             device_id: fs_rev.device_id,
             parent_rev: fs_rev.parent_rev,
             rollback_of: fs_rev.rollback_of,
+            key_gen: fs_rev.key_gen,
         })
     }
 
@@ -429,6 +475,12 @@ impl Backend for FsBackend {
     }
 
     fn rollback(&self, app: &str, env: &str, to_rev: u64) -> Result<RevisionMeta, BackendError> {
+        let account = self.load_account()?;
+        if account.rotation.is_some() {
+            return Err(BackendError::Conflict(
+                "key rotation in progress — retry after it completes".into(),
+            ));
+        }
         let source = self.load_revision(app, env, to_rev)?;
         let meta = self.load_env_meta(app, env)?;
 
@@ -443,6 +495,7 @@ impl Backend for FsBackend {
             device_id: "local".into(),
             parent_rev: Some(meta.latest_rev),
             rollback_of: Some(to_rev),
+            key_gen: source.key_gen,
         };
         self.save_revision(app, env, &rev)?;
         self.save_env_meta(
@@ -461,6 +514,113 @@ impl Backend for FsBackend {
             device_id: "local".into(),
             rollback_of: Some(to_rev),
         })
+    }
+
+    // --- AK rotation (spec L) ---
+
+    fn rotate_begin(&self, req: &RotateBeginReq) -> Result<RotateStatus, BackendError> {
+        let mut account = self.load_account()?;
+        if let Some(ref rot) = account.rotation {
+            if rot.new_key_gen == req.new_key_gen {
+                return self.rotate_status(); // idempotent resume
+            }
+            return Err(BackendError::Conflict(format!(
+                "another rotation to gen {} is in progress",
+                rot.new_key_gen
+            )));
+        }
+        if req.new_key_gen != account.keys.key_gen + 1 {
+            return Err(BackendError::Conflict(format!(
+                "new_key_gen must be {}",
+                account.keys.key_gen + 1
+            )));
+        }
+        account.rotation = Some(FsRotation {
+            new_key_gen: req.new_key_gen,
+            nonce_ak: req.nonce_ak.clone(),
+            wrapped_ak: req.wrapped_ak.clone(),
+            salt_rc: req.salt_rc.clone(),
+            nonce_rc: req.nonce_rc.clone(),
+            wrapped_ak_rc: req.wrapped_ak_rc.clone(),
+        });
+        self.save_account(&account)?;
+        self.rotate_status()
+    }
+
+    fn rotate_status(&self) -> Result<RotateStatus, BackendError> {
+        let account = self.load_account()?;
+        let Some(rot) = account.rotation.clone() else {
+            return Ok(RotateStatus {
+                in_progress: false,
+                current_key_gen: account.keys.key_gen,
+                new_key_gen: None,
+                stale_count: 0,
+                stale: Vec::new(),
+                pending_nonce_ak: None,
+                pending_wrapped_ak: None,
+            });
+        };
+        let stale = self.stale_revisions(rot.new_key_gen)?;
+        Ok(RotateStatus {
+            in_progress: true,
+            current_key_gen: account.keys.key_gen,
+            new_key_gen: Some(rot.new_key_gen),
+            stale_count: stale.len() as u64,
+            stale,
+            pending_nonce_ak: Some(rot.nonce_ak),
+            pending_wrapped_ak: Some(rot.wrapped_ak),
+        })
+    }
+
+    fn rotate_put_blob(
+        &self,
+        app: &str,
+        env: &str,
+        rev: u64,
+        blob: &str,
+        key_gen: u64,
+    ) -> Result<(), BackendError> {
+        let account = self.load_account()?;
+        let Some(rot) = account.rotation else {
+            return Err(BackendError::Other(
+                "blob replacement is only allowed during key rotation".into(),
+            ));
+        };
+        if key_gen != rot.new_key_gen {
+            return Err(BackendError::Conflict(format!(
+                "key_gen must be {}",
+                rot.new_key_gen
+            )));
+        }
+        let mut fs_rev = self.load_revision(app, env, rev)?;
+        fs_rev.blob = blob.to_string();
+        fs_rev.key_gen = key_gen;
+        self.save_revision(app, env, &fs_rev)
+    }
+
+    fn rotate_complete(&self) -> Result<u64, BackendError> {
+        let mut account = self.load_account()?;
+        let Some(rot) = account.rotation.clone() else {
+            return Err(BackendError::Other("no rotation in progress".into()));
+        };
+        let stale = self.stale_revisions(rot.new_key_gen)?;
+        if !stale.is_empty() {
+            return Err(BackendError::Conflict(format!(
+                "rotation incomplete: {} revision(s) still on the old key",
+                stale.len()
+            )));
+        }
+        account.keys.key_gen = rot.new_key_gen;
+        account.keys.nonce_ak = rot.nonce_ak;
+        account.keys.wrapped_ak = rot.wrapped_ak;
+        if rot.wrapped_ak_rc.is_some() {
+            account.keys.salt_rc = rot.salt_rc;
+            account.keys.nonce_rc = rot.nonce_rc;
+            account.keys.wrapped_ak_rc = rot.wrapped_ak_rc;
+        }
+        account.rotation = None;
+        self.save_account(&account)?;
+        Ok(account.keys.key_gen)
     }
 }
 
