@@ -6,6 +6,16 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning: [S
 ## [Unreleased]
 
 ### Added
+
+### Changed
+
+### Fixed
+
+### Security
+
+## [1.3.0] - 2026-07-03
+
+### Added
 - Store any file, not just `.env` — DataGrip XML, kubeconfig, JSON (`dmage init dbconf
   --file dataSources.xml`). The file name/format travel inside the encrypted payload
   (server never sees them); `pull`/`push` use the stored name automatically; `diff`
@@ -25,9 +35,9 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning: [S
 - Pushing an empty `.env` (0 keys, including comments-only files) now fails with an error.
   Pass `--allow-empty` to `dmage push` / `dmage init` if intentional.
 
-### Fixed
-
 ### Security
+- Release binaries ship with a `SHA256SUMS` asset; `dmage upgrade` refuses releases
+  without it.
 
 ## [1.2.1] - 2026-07-01
 
@@ -50,4 +60,5 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning: [S
 First stable release line: auth, init/push/pull/exec/diff/history/rollback, environments,
 enrollment tokens, local FsBackend mode, Homebrew formula.
 
-[Unreleased]: https://github.com/dotMage/dotmage/compare/v1.2.1...HEAD
+[Unreleased]: https://github.com/dotMage/dotmage/compare/v1.3.0...HEAD
+[1.3.0]: https://github.com/dotMage/dotmage/compare/v1.2.1...v1.3.0
