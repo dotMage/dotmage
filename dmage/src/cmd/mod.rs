@@ -16,6 +16,7 @@ pub mod push;
 pub mod rollback;
 pub mod status;
 pub mod token_cmd;
+pub mod upgrade;
 
 pub mod gen_ci_token;
 

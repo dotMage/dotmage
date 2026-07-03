@@ -6,6 +6,9 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning: [S
 ## [Unreleased]
 
 ### Added
+- `dmage upgrade` — self-update from GitHub releases: verifies `SHA256SUMS`, sanity-checks
+  the new binary, replaces itself atomically. `--check`, `--version`, `--force`, `-y`.
+  Homebrew/cargo installs get a hint to use their package manager instead.
 
 ### Changed
 - Pushing an empty `.env` (0 keys, including comments-only files) now fails with an error.

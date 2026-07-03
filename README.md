@@ -14,6 +14,18 @@ Pre-built binaries for macOS, Linux, and Windows are available on the [Releases]
 cargo install --git https://github.com/dotMage/dotmage.git
 ```
 
+### Upgrade
+
+```bash
+dmage upgrade            # direct-binary installs: verified self-update
+brew upgrade dotmage     # Homebrew installs
+```
+
+`dmage upgrade` downloads the release binary, verifies it against the release's
+`SHA256SUMS`, sanity-checks it, and atomically replaces itself. Homebrew/cargo installs
+are detected and delegated to the package manager. `--check` only reports,
+`--version X.Y.Z --force` allows downgrades.
+
 ## Quick start
 
 ```bash
@@ -48,6 +60,7 @@ dmage exec myapp -- npm run dev
 | `dmage env list <app>` | List environments |
 | `dmage lock` | Remove key from keychain |
 | `dmage logout` | Full logout (key + tokens) |
+| `dmage upgrade` | Self-update from GitHub releases (sha256-verified) |
 
 ## Security
 

@@ -149,6 +149,21 @@ enum Commands {
         #[arg(long, default_value = "24h")]
         ttl: String,
     },
+    /// Upgrade dmage to the latest release.
+    Upgrade {
+        /// Only check for a new version, don't install.
+        #[arg(long)]
+        check: bool,
+        /// Install a specific version (default: latest).
+        #[arg(long)]
+        version: Option<String>,
+        /// Reinstall/downgrade even if not newer.
+        #[arg(long)]
+        force: bool,
+        /// Skip the confirmation prompt.
+        #[arg(short = 'y', long)]
+        yes: bool,
+    },
     /// Manage environments.
     Env {
         #[command(subcommand)]
@@ -280,6 +295,12 @@ fn run(cli: Cli) -> Result<(), cmd::CliError> {
         Commands::Logout => cmd::lock::run_logout(&ctx),
         Commands::Clean => cmd::clean::run(&ctx),
         Commands::GenToken { name, ttl } => cmd::gen_token::run(&ctx, name.as_deref(), &ttl),
+        Commands::Upgrade {
+            check,
+            version,
+            force,
+            yes,
+        } => cmd::upgrade::run(&ctx, check, version.as_deref(), force, yes),
         Commands::Env { action } => cmd::env::run(
             &ctx,
             action.map(|a| match a {
@@ -293,88 +314,6 @@ fn run(cli: Cli) -> Result<(), cmd::CliError> {
             }),
         ),
         Commands::Help => unreachable!(),
-    }
-}
-
-/// Compare two semver strings. Returns true if `a` is newer than `b`.
-fn semver_gt(a: &str, b: &str) -> bool {
-    let parse = |s: &str| -> (u32, u32, u32) {
-        let mut parts = s.split('.').map(|p| p.parse::<u32>().unwrap_or(0));
-        (
-            parts.next().unwrap_or(0),
-            parts.next().unwrap_or(0),
-            parts.next().unwrap_or(0),
-        )
-    };
-    parse(a) > parse(b)
-}
-
-fn check_for_update() -> Option<String> {
-    let cache_path = dotmage_client::config::Config::default_dir().join("update_check.json");
-
-    #[derive(serde::Serialize, serde::Deserialize)]
-    struct UpdateCache {
-        checked_at: u64,
-        latest_version: String,
-    }
-
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .ok()?
-        .as_secs();
-
-    let current = env!("CARGO_PKG_VERSION");
-
-    // Read cache — if fresh enough, use it
-    if let Ok(data) = std::fs::read_to_string(&cache_path) {
-        if let Ok(cache) = serde_json::from_str::<UpdateCache>(&data) {
-            if now.saturating_sub(cache.checked_at) < 86400 {
-                return if semver_gt(&cache.latest_version, current) {
-                    Some(cache.latest_version)
-                } else {
-                    None
-                };
-            }
-        }
-    }
-
-    // Fetch from GitHub (3s timeout, ignore errors)
-    let client = reqwest::blocking::Client::builder()
-        .timeout(std::time::Duration::from_secs(3))
-        .build()
-        .ok()?;
-
-    let resp = client
-        .get("https://api.github.com/repos/dotMage/dotmage/releases/latest")
-        .header("User-Agent", "dmage-cli")
-        .send()
-        .ok()?;
-
-    if !resp.status().is_success() {
-        return None;
-    }
-
-    #[derive(serde::Deserialize)]
-    struct GhRelease {
-        tag_name: String,
-    }
-
-    let release: GhRelease = resp.json().ok()?;
-    let latest = release.tag_name.trim_start_matches('v').to_string();
-
-    // Save cache
-    let cache = UpdateCache {
-        checked_at: now,
-        latest_version: latest.clone(),
-    };
-    if let Ok(json) = serde_json::to_string(&cache) {
-        let _ = std::fs::write(&cache_path, json);
-    }
-
-    if semver_gt(&latest, current) {
-        Some(latest)
-    } else {
-        None
     }
 }
 
@@ -412,10 +351,10 @@ fn print_banner() {
     }
 
     // Update check
-    if let Some(latest) = check_for_update() {
+    if let Some(latest) = cmd::upgrade::check_for_update() {
         println!();
         println!("  \x1b[33mupdate available: v{latest}  (current: v{version})\x1b[0m");
-        println!("  \x1b[90mhttps://github.com/dotMage/dotmage/releases\x1b[0m");
+        println!("  \x1b[90mrun: \x1b[0mdmage upgrade");
     }
 
     println!();
