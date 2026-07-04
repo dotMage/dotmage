@@ -97,9 +97,7 @@ fn remove_user(ctx: &mut Context, name: &str, yes: bool) -> Result<(), CliError>
         }
 
         let revoked = backend.users_remove(&user_id)?;
-        ctx.success(&format!(
-            "removed '{name}' ({revoked} device(s) revoked)"
-        ));
+        ctx.success(&format!("removed '{name}' ({revoked} device(s) revoked)"));
     }
 
     // Rotation is what actually locks them out of FUTURE data.
