@@ -13,6 +13,12 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning: [S
 
 ### Security
 
+## [2.0.2] - 2026-07-06
+
+### Added
+- After `dmage auth --invite`, the CLI offers to map a project directory to the new
+  server (Enter accepts the current dir, `-` skips) — no more mandatory manual `server map`.
+
 ## [2.0.1] - 2026-07-06
 
 ### Added
@@ -104,7 +110,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning: [S
 First stable release line: auth, init/push/pull/exec/diff/history/rollback, environments,
 enrollment tokens, local FsBackend mode, Homebrew formula.
 
-[Unreleased]: https://github.com/dotMage/dotmage/compare/v2.0.1...HEAD
+[Unreleased]: https://github.com/dotMage/dotmage/compare/v2.0.2...HEAD
+[2.0.2]: https://github.com/dotMage/dotmage/compare/v2.0.1...v2.0.2
 [2.0.1]: https://github.com/dotMage/dotmage/compare/v2.0.0...v2.0.1
 [2.0.0]: https://github.com/dotMage/dotmage/compare/v1.4.0...v2.0.0
 [1.4.0]: https://github.com/dotMage/dotmage/compare/v1.3.0...v1.4.0

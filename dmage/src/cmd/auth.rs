@@ -96,6 +96,57 @@ pub fn join_with_invite(
         resp.name, resp.role
     ));
     ctx.print("your password is yours alone — nobody else on the team knows it");
+
+    offer_dir_mapping(ctx)?;
+    Ok(())
+}
+
+/// After joining, offer to bind this server to a project directory so commands
+/// auto-route there (spec multi-server). Never forces it — Enter skips.
+fn offer_dir_mapping(ctx: &mut Context) -> Result<(), CliError> {
+    if ctx.quiet {
+        return Ok(());
+    }
+    let Some((server_name, _)) = ctx.server.clone() else {
+        return Ok(());
+    };
+    let default = std::env::current_dir()
+        .ok()
+        .map(|d| dotmage_client::config::contract_tilde(&d))
+        .unwrap_or_default();
+
+    eprintln!();
+    eprint!(
+        "  Map a project directory to '{server_name}' so commands here go to it?\n  \
+         directory [{default}] (or '-' to skip): "
+    );
+    let mut input = String::new();
+    std::io::stdin().read_line(&mut input)?;
+    let choice = input.trim();
+    if choice == "-" {
+        ctx.print(&format!(
+            "skipped — you can map later: dmage server map {server_name} <dir>"
+        ));
+        return Ok(());
+    }
+    let path = if choice.is_empty() { &default } else { choice };
+    if path.is_empty() {
+        return Ok(());
+    }
+
+    let expanded = dotmage_client::config::expand_tilde(path);
+    let canon = expanded.canonicalize().unwrap_or(expanded);
+    let normalized = dotmage_client::config::contract_tilde(&canon);
+
+    let mut config =
+        dotmage_client::config::Config::load().map_err(|e| CliError::Config(e.to_string()))?;
+    if let Some(entry) = config.servers.get_mut(&server_name) {
+        if !entry.paths.contains(&normalized) {
+            entry.paths.push(normalized.clone());
+        }
+        config.save().map_err(|e| CliError::Config(e.to_string()))?;
+        ctx.success(&format!("{normalized} → {server_name}"));
+    }
     Ok(())
 }
 
