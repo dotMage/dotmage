@@ -159,6 +159,10 @@ pub struct HealthInfo {
     /// Optional capabilities (B.9): "rotation", "team". Old servers omit it.
     #[serde(default)]
     pub features: Vec<String>,
+    /// Display name the server advertises (B.9); clients adopt it as the
+    /// default server name. Absent on servers without DOTMAGE_SERVER_NAME.
+    #[serde(default)]
+    pub server_name: Option<String>,
 }
 
 /// Identity of the calling device/user (B.9).

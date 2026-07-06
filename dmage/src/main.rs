@@ -164,8 +164,12 @@ enum Commands {
         #[arg(long)]
         all: bool,
     },
-    /// Wipe all local dotMage data from this device.
-    Clean,
+    /// Wipe local dotMage data. Without --server: everything; with --server: one server.
+    Clean {
+        /// Wipe only this server (key + tokens + config entry).
+        #[arg(long)]
+        server: Option<String>,
+    },
     /// Generate enrollment/CI token.
     GenToken {
         /// Token name.
@@ -366,6 +370,55 @@ fn name_from_url(url: &str) -> String {
         .to_string()
 }
 
+/// Keep only config-key-safe characters for a server name.
+fn sanitize_name(name: &str) -> String {
+    let out: String = name
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
+        .collect();
+    if out.is_empty() {
+        "server".into()
+    } else {
+        out
+    }
+}
+
+/// Choose the config name for a newly added server:
+/// explicit `--name` > the server's advertised `server_name` (from /health) >
+/// the URL host. De-collides against existing servers that point elsewhere so
+/// we never overwrite a different server's entry.
+fn choose_server_name(url: &str, explicit: &Option<String>) -> String {
+    if let Some(n) = explicit {
+        return sanitize_name(n);
+    }
+    let advertised = dotmage_client::backend_http::HttpBackend::new(url, "")
+        .health()
+        .ok()
+        .and_then(|h| h.server_name)
+        .map(|n| sanitize_name(&n))
+        .filter(|n| !n.is_empty());
+    let base = advertised.unwrap_or_else(|| name_from_url(url));
+
+    let config = dotmage_client::config::Config::load().unwrap_or_default();
+    let taken_by_other = |name: &str| {
+        config
+            .servers
+            .get(name)
+            .is_some_and(|e| e.url.trim_end_matches('/') != url.trim_end_matches('/'))
+    };
+    if !taken_by_other(&base) {
+        return base;
+    }
+    let host = name_from_url(url);
+    let mut candidate = format!("{base}-{host}");
+    let mut n = 2;
+    while taken_by_other(&candidate) {
+        candidate = format!("{base}-{n}");
+        n += 1;
+    }
+    candidate
+}
+
 fn run(cli: Cli) -> Result<(), cmd::CliError> {
     let command = cli.command.unwrap();
 
@@ -389,7 +442,7 @@ fn run(cli: Cli) -> Result<(), cmd::CliError> {
     {
         if let Ok(parsed) = cmd::user::parse_invite_token(token) {
             let url = parsed.server_url.trim_end_matches('/').to_string();
-            let name = name.clone().unwrap_or_else(|| name_from_url(&url));
+            let name = choose_server_name(&url, name);
             register_server(&url, &name)?;
             server_override = Some(name);
         }
@@ -398,7 +451,7 @@ fn run(cli: Cli) -> Result<(), cmd::CliError> {
         if is_url(s) {
             if let Commands::Auth { ref name, .. } = command {
                 let url = s.trim_end_matches('/').to_string();
-                let name = name.clone().unwrap_or_else(|| name_from_url(&url));
+                let name = choose_server_name(&url, name);
                 register_server(&url, &name)?;
                 server_override = Some(name);
                 auth_url = Some(url);
@@ -513,7 +566,7 @@ fn run(cli: Cli) -> Result<(), cmd::CliError> {
         Commands::Status => cmd::status::run(&ctx),
         Commands::Lock { all } => cmd::lock::run(&ctx, all),
         Commands::Logout { all } => cmd::lock::run_logout(&ctx, all),
-        Commands::Clean => cmd::clean::run(&ctx),
+        Commands::Clean { server } => cmd::clean::run(&ctx, server.as_deref()),
         Commands::GenToken { name, ttl } => cmd::gen_token::run(&ctx, name.as_deref(), &ttl),
         Commands::Whoami => cmd::user::whoami(&ctx),
         Commands::User { action } => cmd::user::run(
