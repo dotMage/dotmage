@@ -13,6 +13,17 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning: [S
 
 ### Security
 
+## [2.0.1] - 2026-07-06
+
+### Added
+- On `dmage auth`, the CLI adopts the server's advertised name (`DOTMAGE_SERVER_NAME`)
+  as the local server name — no more manual `dmage server rename` after joining.
+- `dmage clean --server <name>` wipes a single server (key + tokens + config entry);
+  the global `dmage clean` now warns loudly before wiping every server.
+
+### Changed
+- Global `dmage clean` points to `dmage server rm` / `--server` for single-server removal.
+
 ## [2.0.0] - 2026-07-03
 
 ### Added
@@ -93,7 +104,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning: [S
 First stable release line: auth, init/push/pull/exec/diff/history/rollback, environments,
 enrollment tokens, local FsBackend mode, Homebrew formula.
 
-[Unreleased]: https://github.com/dotMage/dotmage/compare/v2.0.0...HEAD
+[Unreleased]: https://github.com/dotMage/dotmage/compare/v2.0.1...HEAD
+[2.0.1]: https://github.com/dotMage/dotmage/compare/v2.0.0...v2.0.1
 [2.0.0]: https://github.com/dotMage/dotmage/compare/v1.4.0...v2.0.0
 [1.4.0]: https://github.com/dotMage/dotmage/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/dotMage/dotmage/compare/v1.2.1...v1.3.0
