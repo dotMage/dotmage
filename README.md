@@ -146,8 +146,8 @@ CI tokens must be regenerated, other devices re-run `dmage auth`.
 ## Contributing
 
 Every user-visible change updates `CHANGELOG.md` under `[Unreleased]` in the same PR —
-entries are written for users, not committers. Release process:
-[dotmage-spec/RELEASING.md](https://github.com/dotMage/dotmage-spec/blob/main/RELEASING.md).
+entries are written for users, not committers. The release process is documented in the
+private `dotmage-spec` repo.
 
 ## License
 
