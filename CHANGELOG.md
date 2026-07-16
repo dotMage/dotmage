@@ -17,9 +17,10 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning: [S
 ### Changed
 - TLS switched from OpenSSL to rustls: Linux binaries no longer require `libssl`
   at runtime and run on any glibc distro out of the box.
-- Releases are no longer cut automatically on push to `main`: the Release workflow
-  is now `workflow_dispatch`-only (run manually from the Actions tab or via
-  `gh workflow run release.yml`).
+- Releases are no longer cut automatically on push to `main`: a release is an
+  annotated tag (`git tag -a vX.Y.Z && git push origin vX.Y.Z`) — the pipeline starts
+  only from the tag, cross-checks it against `Cargo.toml`, and main quietly collects
+  features between releases.
 
 ### Fixed
 - `dmage env new --copy-from` produced an environment whose every pull failed with

@@ -1,10 +1,11 @@
 name: Release
 
-# Manual-only: run from the Actions tab (or `gh workflow run release.yml`).
-# Reads the version from dmage/Cargo.toml, tags it, builds, publishes the
-# GitHub release and updates the Homebrew formula.
+# A release IS an annotated tag: the pipeline starts only from `git push origin vX.Y.Z`.
+# Main stays green between tags and quietly collects features; the release commit is a
+# CHANGELOG cut + version bump, nothing else (see dotmage-spec RELEASING.md).
 on:
-  workflow_dispatch:
+  push:
+    tags: ['v*']
 
 permissions:
   contents: write
@@ -13,28 +14,26 @@ jobs:
   version:
     runs-on: ubuntu-latest
     outputs:
-      is_new: ${{ steps.check.outputs.is_new }}
       version: ${{ steps.check.outputs.version }}
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - name: Check if version needs release
+      - name: Version from tag, cross-checked against Cargo.toml
         id: check
         run: |
-          VERSION=$(grep '^version' dmage/Cargo.toml | head -1 | sed 's/.*"\(.*\)"/\1/')
-          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
-          if git rev-parse "v${VERSION}" >/dev/null 2>&1; then
-            echo "Tag v${VERSION} already exists — skipping release"
-            echo "is_new=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "New version v${VERSION} — will release"
-            echo "is_new=true" >> "$GITHUB_OUTPUT"
+          TAG="${GITHUB_REF_NAME#v}"
+          CARGO=$(grep '^version' dmage/Cargo.toml | head -1 | sed 's/.*"\(.*\)"/\1/')
+          if [ "$TAG" != "$CARGO" ]; then
+            echo "::error::Tag v${TAG} does not match dmage/Cargo.toml version ${CARGO} — the release commit must bump the version and cut the CHANGELOG before tagging"
+            exit 1
           fi
+          if [ "$(git cat-file -t "refs/tags/v${TAG}")" != "tag" ]; then
+            echo "::error::v${TAG} is a lightweight tag — releases use annotated tags: git tag -a v${TAG} -m 'v${TAG}'"
+            exit 1
+          fi
+          echo "version=${TAG}" >> "$GITHUB_OUTPUT"
 
   build:
     needs: version
-    if: needs.version.outputs.is_new == 'true'
     strategy:
       matrix:
         include:
@@ -83,10 +82,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Create tag
-        run: |
-          git tag "v${{ needs.version.outputs.version }}"
-          git push origin "v${{ needs.version.outputs.version }}"
       - uses: actions/download-artifact@v4
         with:
           merge-multiple: true
