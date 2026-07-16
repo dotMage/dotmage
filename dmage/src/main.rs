@@ -28,7 +28,7 @@ struct Cli {
     #[arg(short, long, global = true)]
     quiet: bool,
 
-    /// JSON output for scripting.
+    /// JSON output for scripting (status, diff, history, apps, whoami).
     #[arg(long, global = true)]
     json: bool,
 }

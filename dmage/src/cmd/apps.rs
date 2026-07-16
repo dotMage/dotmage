@@ -1,16 +1,22 @@
 //! `dmage apps` — list all applications.
 
+use dotmage_client::types::AppInfo;
+
 use super::{CliError, Context};
 
 pub fn run(ctx: &Context) -> Result<(), CliError> {
     let mut apps = ctx.backend.list_apps()?;
+    apps.sort_by(|a, b| a.name.cmp(&b.name));
+
+    if ctx.json {
+        println!("{}", render_json(&apps));
+        return Ok(());
+    }
 
     if apps.is_empty() {
         ctx.print("no apps");
         return Ok(());
     }
-
-    apps.sort_by(|a, b| a.name.cmp(&b.name));
 
     let mut current_folder: Option<&str> = None;
     let mut first = true;
@@ -43,4 +49,44 @@ pub fn run(ctx: &Context) -> Result<(), CliError> {
         first = false;
     }
     Ok(())
+}
+
+/// JSON contract (spec §5, semver): fields are spelled out here rather than
+/// derived from the transport type, so transport changes can't leak into the
+/// contract unnoticed.
+fn render_json(apps: &[AppInfo]) -> String {
+    let items: Vec<serde_json::Value> = apps
+        .iter()
+        .map(|a| {
+            serde_json::json!({
+                "name": a.name,
+                "environments": a.environments,
+                "updated_at": a.updated_at,
+            })
+        })
+        .collect();
+    serde_json::to_string_pretty(&items).expect("json array serializes")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn empty_list_renders_as_empty_array() {
+        assert_eq!(render_json(&[]), "[]");
+    }
+
+    #[test]
+    fn contract_fields() {
+        let apps = vec![AppInfo {
+            name: "backend/api".into(),
+            environments: vec!["dev".into(), "prod".into()],
+            updated_at: "2026-07-16T10:00:00Z".into(),
+        }];
+        let v: serde_json::Value = serde_json::from_str(&render_json(&apps)).unwrap();
+        assert_eq!(v[0]["name"], "backend/api");
+        assert_eq!(v[0]["environments"][1], "prod");
+        assert_eq!(v[0]["updated_at"], "2026-07-16T10:00:00Z");
+    }
 }

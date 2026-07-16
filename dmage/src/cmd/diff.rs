@@ -23,6 +23,16 @@ pub fn run(
     }
     let local_data = std::fs::read(local_path)?;
 
+    if ctx.json {
+        // The JSON contract never carries secret values — --show-values is a
+        // local human affordance; JSON output ends up in CI logs.
+        println!(
+            "{}",
+            render_json(local_file, rev_number, remote.meta.format, &local_data, &remote.data)
+        );
+        return Ok(());
+    }
+
     match remote.meta.format {
         FileFormat::Env => diff_env(
             local_file,
@@ -66,6 +76,59 @@ pub fn run(
             Ok(())
         }
     }
+}
+
+/// JSON contract (spec §5, semver): env diffs list keys and change kinds — no
+/// values, ever. Non-env formats report sizes and equality only.
+fn render_json(
+    file: &str,
+    rev: u64,
+    format: FileFormat,
+    local_data: &[u8],
+    remote_data: &[u8],
+) -> String {
+    let base = |identical: bool| {
+        serde_json::json!({
+            "file": file,
+            "rev": rev,
+            "format": format.as_str(),
+            "identical": identical,
+        })
+    };
+    let doc = match format {
+        FileFormat::Env => {
+            let local_vars = parse_env_map(local_data);
+            let remote_vars = parse_env_map(remote_data);
+            let all_keys: BTreeSet<&str> = local_vars
+                .keys()
+                .chain(remote_vars.keys())
+                .map(|s| s.as_str())
+                .collect();
+            let changes: Vec<serde_json::Value> = all_keys
+                .into_iter()
+                .filter_map(|key| {
+                    let status = match (local_vars.get(key), remote_vars.get(key)) {
+                        (Some(l), Some(r)) if l != r => "changed",
+                        (Some(_), None) => "local_only",
+                        (None, Some(_)) => "remote_only",
+                        _ => return None,
+                    };
+                    Some(serde_json::json!({ "key": key, "status": status }))
+                })
+                .collect();
+            let mut doc = base(changes.is_empty());
+            doc["changes"] = serde_json::Value::Array(changes);
+            doc
+        }
+        FileFormat::Text | FileFormat::Binary => {
+            let identical = Sha256::digest(local_data) == Sha256::digest(remote_data);
+            let mut doc = base(identical);
+            doc["local_bytes"] = local_data.len().into();
+            doc["remote_bytes"] = remote_data.len().into();
+            doc
+        }
+    };
+    serde_json::to_string_pretty(&doc).expect("json object serializes")
 }
 
 fn count_lines(data: &[u8]) -> usize {
@@ -140,4 +203,48 @@ fn parse_env_map(data: &[u8]) -> std::collections::BTreeMap<String, String> {
             ))
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn env_diff_lists_keys_but_never_values() {
+        let out = render_json(
+            ".env",
+            7,
+            FileFormat::Env,
+            b"SAME=1\nCHANGED=local-secret\nLOCAL_ONLY=x\n",
+            b"SAME=1\nCHANGED=remote-secret\nREMOTE_ONLY=y\n",
+        );
+        let v: serde_json::Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(v["identical"], false);
+        let changes = v["changes"].as_array().unwrap();
+        assert_eq!(changes.len(), 3);
+        assert!(changes.iter().any(|c| c["key"] == "CHANGED" && c["status"] == "changed"));
+        assert!(changes.iter().any(|c| c["key"] == "LOCAL_ONLY" && c["status"] == "local_only"));
+        assert!(changes.iter().any(|c| c["key"] == "REMOTE_ONLY" && c["status"] == "remote_only"));
+        // The contract: values must not appear anywhere in the document.
+        assert!(!out.contains("local-secret"));
+        assert!(!out.contains("remote-secret"));
+    }
+
+    #[test]
+    fn identical_env_has_empty_changes() {
+        let out = render_json(".env", 1, FileFormat::Env, b"A=1\n", b"A=1\n");
+        let v: serde_json::Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(v["identical"], true);
+        assert_eq!(v["changes"], serde_json::json!([]));
+    }
+
+    #[test]
+    fn binary_reports_sizes_only() {
+        let out = render_json("cert.p12", 2, FileFormat::Binary, b"aaa", b"bbbb");
+        let v: serde_json::Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(v["identical"], false);
+        assert_eq!(v["local_bytes"], 3);
+        assert_eq!(v["remote_bytes"], 4);
+        assert!(v.get("changes").is_none());
+    }
 }

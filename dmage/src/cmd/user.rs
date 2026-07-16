@@ -121,12 +121,29 @@ fn remove_user(ctx: &mut Context, name: &str, yes: bool) -> Result<(), CliError>
 pub fn whoami(ctx: &Context) -> Result<(), CliError> {
     let backend = http_backend(ctx)?;
     let me = backend.whoami()?;
+    let server = ctx.config.server_url.as_deref().map(host_of);
+
+    if ctx.json {
+        println!("{}", whoami_json(&me, server));
+        return Ok(());
+    }
+
     println!("  user     {} ({})", me.name, me.role);
     println!("  device   {} ({})", me.device_name, me.device_id);
-    if let Some(url) = &ctx.config.server_url {
-        println!("  server   {}", host_of(url));
+    if let Some(host) = server {
+        println!("  server   {host}");
     }
     Ok(())
+}
+
+/// JSON contract (spec §5, semver) — fields spelled out, see apps.rs.
+fn whoami_json(me: &dotmage_client::types::WhoamiInfo, server: Option<&str>) -> String {
+    serde_json::to_string_pretty(&serde_json::json!({
+        "user": { "name": me.name, "role": me.role },
+        "device": { "name": me.device_name, "id": me.device_id },
+        "server": server,
+    }))
+    .expect("json object serializes")
 }
 
 fn list(ctx: &Context) -> Result<(), CliError> {

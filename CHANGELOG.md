@@ -6,6 +6,10 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning: [S
 ## [Unreleased]
 
 ### Added
+- `--json` on `status`, `diff`, `history`, `apps`, `whoami` — machine-readable output
+  for scripts, CI and editor integrations. One JSON document on stdout, errors stay on
+  stderr; schemas are a semver contract (spec §5). `diff --json` never includes secret
+  values, even with `--show-values`.
 - Prebuilt Linux aarch64 binary (`dmage-linux-aarch64`) — Raspberry Pi and ARM VPS
   are covered by releases and `dmage upgrade`; install one-liners now pick the
   binary via `uname -m`.
