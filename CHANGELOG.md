@@ -6,8 +6,13 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning: [S
 ## [Unreleased]
 
 ### Added
+- Prebuilt Linux aarch64 binary (`dmage-linux-aarch64`) — Raspberry Pi and ARM VPS
+  are covered by releases and `dmage upgrade`; install one-liners now pick the
+  binary via `uname -m`.
 
 ### Changed
+- TLS switched from OpenSSL to rustls: Linux binaries no longer require `libssl`
+  at runtime and run on any glibc distro out of the box.
 - Releases are no longer cut automatically on push to `main`: the Release workflow
   is now `workflow_dispatch`-only (run manually from the Actions tab or via
   `gh workflow run release.yml`).

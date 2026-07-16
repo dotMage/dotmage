@@ -189,6 +189,8 @@ fn platform_asset() -> Result<&'static str, CliError> {
         "dmage-macos-x86_64"
     } else if cfg!(all(target_os = "linux", target_arch = "x86_64")) {
         "dmage-linux-x86_64"
+    } else if cfg!(all(target_os = "linux", target_arch = "aarch64")) {
+        "dmage-linux-aarch64"
     } else if cfg!(all(target_os = "windows", target_arch = "x86_64")) {
         "dmage-windows-x86_64.exe"
     } else {
