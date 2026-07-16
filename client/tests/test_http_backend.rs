@@ -124,7 +124,7 @@ fn full_cycle_against_real_server() {
 
     // 5. Create app + env
     backend.create_app("integration-app").unwrap();
-    backend.create_env("integration-app", "dev", None).unwrap();
+    backend.create_env("integration-app", "dev").unwrap();
 
     // 6. Push
     let plaintext = b"DATABASE_URL=postgres://test\nAPI_KEY=secret123\n";

@@ -44,7 +44,7 @@ pub fn run(
     ctx.backend.create_app(name)?;
 
     // Create default env "dev"
-    ctx.backend.create_env(name, &ctx.active_env, None)?;
+    ctx.backend.create_env(name, &ctx.active_env)?;
 
     // Encrypt and push first revision
     let payload = container::encode(&meta, &data);

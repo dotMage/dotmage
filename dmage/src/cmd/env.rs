@@ -1,5 +1,10 @@
 //! `dmage env` — manage environments.
 
+use dotmage_client::container;
+use dotmage_client::types::RevSpec;
+use dotmage_crypto::blob;
+use dotmage_crypto::secret;
+
 use super::{CliError, Context};
 
 pub enum EnvCmd {
@@ -8,7 +13,7 @@ pub enum EnvCmd {
     Rm(String, String, bool),
 }
 
-pub fn run(ctx: &Context, action: Option<EnvCmd>) -> Result<(), CliError> {
+pub fn run(ctx: &mut Context, action: Option<EnvCmd>) -> Result<(), CliError> {
     match action {
         None => {
             // Show active environment
@@ -39,8 +44,43 @@ pub fn run(ctx: &Context, action: Option<EnvCmd>) -> Result<(), CliError> {
             Ok(())
         }
         Some(EnvCmd::New(app, name, copy_from)) => {
-            ctx.backend.create_env(&app, &name, copy_from.as_deref())?;
-            ctx.print(&format!("Created environment '{name}' in app '{app}'."));
+            // Copy happens client-side: blobs are AEAD-bound to app|env|rev,
+            // so the server can't re-bind ciphertext to a new environment —
+            // we decrypt the source here and re-encrypt for the new env.
+            let source = match copy_from {
+                None => None,
+                Some(src) => {
+                    let envs = ctx.backend.list_envs(&app)?;
+                    let info = envs.iter().find(|e| e.name == src).ok_or_else(|| {
+                        CliError::Other(format!("source env '{src}' not found in app '{app}'"))
+                    })?;
+                    if info.latest_rev == 0 {
+                        None // empty source — nothing to copy
+                    } else {
+                        let (_, decoded) = ctx.pull_decoded_in(&app, &src, &RevSpec::Latest)?;
+                        Some((src, decoded))
+                    }
+                }
+            };
+
+            ctx.backend.create_env(&app, &name)?;
+
+            match source {
+                None => {
+                    ctx.print(&format!("Created environment '{name}' in app '{app}'."));
+                }
+                Some((src, decoded)) => {
+                    let ak = ctx.require_ak()?;
+                    let payload = container::encode(&decoded.meta, &decoded.data);
+                    let encrypted = secret::encrypt_secret(&ak, &payload, &app, &name, 1)
+                        .map_err(|e| CliError::Crypto(e.to_string()))?;
+                    ctx.backend
+                        .push_revision(&app, &name, &blob::encode_blob(&encrypted), 0)?;
+                    ctx.success(&format!(
+                        "Created environment '{name}' in app '{app}' (rev 1 copied from '{src}')."
+                    ));
+                }
+            }
             Ok(())
         }
         Some(EnvCmd::Rm(app, name, yes)) => {

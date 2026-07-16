@@ -18,6 +18,13 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning: [S
   `gh workflow run release.yml`).
 
 ### Fixed
+- `dmage env new --copy-from` produced an environment whose every pull failed with
+  "AEAD authentication failed": the server copied the encrypted blob byte-for-byte,
+  but ciphertext is bound to `app|env|rev`. The copy now happens client-side —
+  decrypt the source, re-encrypt for the new environment, push as rev 1.
+- `dmage rotate-key` no longer aborts (and blocks rotation forever) when it hits a
+  revision it cannot decrypt: the broken revision is kept byte-for-byte, marked with
+  the new key generation, and reported loudly at the end.
 
 ### Security
 

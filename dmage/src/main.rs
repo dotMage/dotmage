@@ -588,7 +588,7 @@ fn run(cli: Cli) -> Result<(), cmd::CliError> {
             yes,
         } => cmd::upgrade::run(&ctx, check, version.as_deref(), force, yes),
         Commands::Env { action } => cmd::env::run(
-            &ctx,
+            &mut ctx,
             action.map(|a| match a {
                 EnvAction::List { name } => cmd::env::EnvCmd::List(name),
                 EnvAction::New {

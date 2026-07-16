@@ -299,12 +299,7 @@ impl Backend for FsBackend {
         Ok(result)
     }
 
-    fn create_env(
-        &self,
-        app: &str,
-        env: &str,
-        copy_from: Option<&str>,
-    ) -> Result<(), BackendError> {
+    fn create_env(&self, app: &str, env: &str) -> Result<(), BackendError> {
         if !self.app_dir(app).exists() {
             return Err(BackendError::NotFound(format!("app '{app}'")));
         }
@@ -314,34 +309,6 @@ impl Backend for FsBackend {
         }
 
         fs::create_dir_all(self.revisions_dir(app, env))?;
-
-        if let Some(src) = copy_from {
-            // Copy latest revision from source env
-            let src_meta = self.load_env_meta(app, src)?;
-            if src_meta.latest_rev > 0 {
-                let src_rev = self.load_revision(app, src, src_meta.latest_rev)?;
-                let new_rev = FsRevision {
-                    rev_number: 1,
-                    blob: src_rev.blob,
-                    content_hash: src_rev.content_hash,
-                    created_at: Self::now_iso(),
-                    device_id: "local".into(),
-                    parent_rev: None,
-                    rollback_of: None,
-                    key_gen: src_rev.key_gen,
-                };
-                self.save_revision(app, env, &new_rev)?;
-                self.save_env_meta(
-                    app,
-                    env,
-                    &FsEnvMeta {
-                        latest_rev: 1,
-                        updated_at: Self::now_iso(),
-                    },
-                )?;
-                return Ok(());
-            }
-        }
 
         self.save_env_meta(
             app,

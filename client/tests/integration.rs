@@ -48,7 +48,7 @@ fn full_cycle_init_push_pull() {
 
     // Create app + env
     backend.create_app("myapp").unwrap();
-    backend.create_env("myapp", "dev", None).unwrap();
+    backend.create_env("myapp", "dev").unwrap();
 
     // Push revision 1
     let plaintext = b"DATABASE_URL=postgres://localhost\nSECRET=hunter2\n";
@@ -72,7 +72,7 @@ fn multiple_revisions_and_history() {
     let (_tmp, backend, ak) = setup();
 
     backend.create_app("app2").unwrap();
-    backend.create_env("app2", "dev", None).unwrap();
+    backend.create_env("app2", "dev").unwrap();
 
     // Push 3 revisions
     for i in 1..=3 {
@@ -104,7 +104,7 @@ fn push_conflict_detection() {
     let (_tmp, backend, ak) = setup();
 
     backend.create_app("conflict").unwrap();
-    backend.create_env("conflict", "dev", None).unwrap();
+    backend.create_env("conflict", "dev").unwrap();
 
     // Push rev 1
     let encrypted = secret::encrypt_secret(&ak, b"V=1", "conflict", "dev", 1).unwrap();
@@ -123,7 +123,7 @@ fn rollback_creates_new_revision() {
     let (_tmp, backend, ak) = setup();
 
     backend.create_app("rollback").unwrap();
-    backend.create_env("rollback", "dev", None).unwrap();
+    backend.create_env("rollback", "dev").unwrap();
 
     // Push 2 revisions
     for i in 1..=2 {
@@ -154,8 +154,8 @@ fn environments_independent_chains() {
     let (_tmp, backend, ak) = setup();
 
     backend.create_app("envtest").unwrap();
-    backend.create_env("envtest", "dev", None).unwrap();
-    backend.create_env("envtest", "prod", None).unwrap();
+    backend.create_env("envtest", "dev").unwrap();
+    backend.create_env("envtest", "prod").unwrap();
 
     // Push to dev
     let enc_dev = secret::encrypt_secret(&ak, b"ENV=dev\n", "envtest", "dev", 1).unwrap();
@@ -221,7 +221,7 @@ fn app_list_and_env_copy() {
     let (_tmp, backend, ak) = setup();
 
     backend.create_app("copytest").unwrap();
-    backend.create_env("copytest", "dev", None).unwrap();
+    backend.create_env("copytest", "dev").unwrap();
 
     // Push to dev
     let enc = secret::encrypt_secret(&ak, b"DATA=hello\n", "copytest", "dev", 1).unwrap();
@@ -229,15 +229,44 @@ fn app_list_and_env_copy() {
         .push_revision("copytest", "dev", &blob::encode_blob(&enc), 0)
         .unwrap();
 
-    // Copy dev → staging
+    // Copy dev → staging the way the CLI does it: decrypt the source and
+    // re-encrypt bound to the new env. A server-side byte-copy cannot work —
+    // AEAD ties the blob to app|env|rev.
+    let src = backend
+        .pull_revision("copytest", "dev", &RevSpec::Latest)
+        .unwrap();
+    let plain = secret::decrypt_secret(
+        &ak,
+        &blob::decode_blob(&src.blob).unwrap(),
+        "copytest",
+        "dev",
+        src.rev_number,
+    )
+    .unwrap();
+    backend.create_env("copytest", "staging").unwrap();
+    let enc2 = secret::encrypt_secret(&ak, &plain, "copytest", "staging", 1).unwrap();
     backend
-        .create_env("copytest", "staging", Some("dev"))
+        .push_revision("copytest", "staging", &blob::encode_blob(&enc2), 0)
         .unwrap();
 
     let envs = backend.list_envs("copytest").unwrap();
     assert_eq!(envs.len(), 2);
     let staging = envs.iter().find(|e| e.name == "staging").unwrap();
     assert_eq!(staging.latest_rev, 1); // copied rev
+
+    // The copied revision must decrypt under the NEW env's AAD.
+    let copied = backend
+        .pull_revision("copytest", "staging", &RevSpec::Latest)
+        .unwrap();
+    let plain2 = secret::decrypt_secret(
+        &ak,
+        &blob::decode_blob(&copied.blob).unwrap(),
+        "copytest",
+        "staging",
+        1,
+    )
+    .unwrap();
+    assert_eq!(plain2, b"DATA=hello\n");
 
     // Apps list
     let apps = backend.list_apps().unwrap();
@@ -254,8 +283,8 @@ fn duplicate_app_and_env_errors() {
     backend.create_app("dup").unwrap();
     assert!(backend.create_app("dup").is_err()); // already exists
 
-    backend.create_env("dup", "dev", None).unwrap();
-    assert!(backend.create_env("dup", "dev", None).is_err()); // already exists
+    backend.create_env("dup", "dev").unwrap();
+    assert!(backend.create_env("dup", "dev").is_err()); // already exists
 }
 
 #[test]
@@ -263,8 +292,8 @@ fn delete_env() {
     let (_tmp, backend, _ak) = setup();
 
     backend.create_app("deltest").unwrap();
-    backend.create_env("deltest", "dev", None).unwrap();
-    backend.create_env("deltest", "staging", None).unwrap();
+    backend.create_env("deltest", "dev").unwrap();
+    backend.create_env("deltest", "staging").unwrap();
 
     assert_eq!(backend.list_envs("deltest").unwrap().len(), 2);
 

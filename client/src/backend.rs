@@ -31,8 +31,9 @@ pub trait Backend: AsAny {
 
     // --- Environments ---
     fn list_envs(&self, app: &str) -> Result<Vec<EnvInfo>, BackendError>;
-    fn create_env(&self, app: &str, env: &str, copy_from: Option<&str>)
-        -> Result<(), BackendError>;
+    // NOTE: no copy_from here — copying an env is a client-side operation
+    // (decrypt + re-encrypt), because AEAD binds each blob to app|env|rev.
+    fn create_env(&self, app: &str, env: &str) -> Result<(), BackendError>;
     fn delete_env(&self, app: &str, env: &str) -> Result<(), BackendError>;
 
     // --- Revisions ---

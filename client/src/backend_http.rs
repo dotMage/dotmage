@@ -671,16 +671,8 @@ impl Backend for HttpBackend {
             .collect())
     }
 
-    fn create_env(
-        &self,
-        app: &str,
-        env: &str,
-        copy_from: Option<&str>,
-    ) -> Result<(), BackendError> {
-        let mut body = serde_json::json!({"name": env});
-        if let Some(src) = copy_from {
-            body["copy_from"] = serde_json::Value::String(src.to_string());
-        }
+    fn create_env(&self, app: &str, env: &str) -> Result<(), BackendError> {
+        let body = serde_json::json!({"name": env});
         let (status, resp_body) =
             self.auth_post_json(&format!("/apps/{}/envs", encode_path(app)), &body)?;
         if !status.is_success() {

@@ -202,9 +202,20 @@ impl Context {
     /// Pull a revision, decrypt it, and unwrap the file container.
     /// Returns (rev_number, decoded payload with metadata).
     pub fn pull_decoded(&mut self, app: &str, rev: &RevSpec) -> Result<(u64, Decoded), CliError> {
-        let ak = self.require_ak()?;
         let env_name = self.active_env.clone();
-        let revision = self.backend.pull_revision(app, &env_name, rev)?;
+        self.pull_decoded_in(app, &env_name, rev)
+    }
+
+    /// Same as `pull_decoded`, but for an explicit environment instead of the
+    /// active one (used by client-side env copy).
+    pub fn pull_decoded_in(
+        &mut self,
+        app: &str,
+        env_name: &str,
+        rev: &RevSpec,
+    ) -> Result<(u64, Decoded), CliError> {
+        let ak = self.require_ak()?;
+        let revision = self.backend.pull_revision(app, env_name, rev)?;
 
         // Key-generation check (spec L.4): a blob newer than our cached AK means
         // a rotation completed elsewhere — re-auth picks up the new wrap.
@@ -219,7 +230,7 @@ impl Context {
         let decoded_blob =
             blob::decode_blob(&revision.blob).map_err(|e| CliError::Crypto(e.to_string()))?;
         let plaintext =
-            secret::decrypt_secret(&ak, &decoded_blob, app, &env_name, revision.rev_number)
+            secret::decrypt_secret(&ak, &decoded_blob, app, env_name, revision.rev_number)
                 .map_err(|e| CliError::Crypto(e.to_string()))?;
         Ok((revision.rev_number, container::decode(&plaintext)))
     }

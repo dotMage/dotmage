@@ -82,6 +82,7 @@ pub fn run(ctx: &mut Context, yes: bool) -> Result<(), CliError> {
 
     // Walk stale revisions in pages until none remain.
     let mut done = 0u64;
+    let mut skipped: Vec<String> = Vec::new();
     loop {
         let status = ctx.backend.rotate_status()?;
         if status.stale.is_empty() {
@@ -97,19 +98,50 @@ pub fn run(ctx: &mut Context, yes: bool) -> Result<(), CliError> {
             if revision.key_gen >= new_gen {
                 continue; // already swapped by an interrupted run
             }
-            let decoded =
-                blob::decode_blob(&revision.blob).map_err(|e| CliError::Crypto(e.to_string()))?;
-            let plaintext =
-                secret::decrypt_secret(&old_ak, &decoded, &item.app, &item.env, item.rev_number)
+            // A revision that fails to decode or decrypt was already unreadable
+            // before this rotation (e.g. corrupted server-side). Re-encrypting
+            // it is impossible, but one broken revision must not block the
+            // security-critical rotation of everything else: keep its bytes
+            // verbatim, mark it with the new generation, and report loudly.
+            let reencrypted = blob::decode_blob(&revision.blob)
+                .map_err(|e| e.to_string())
+                .and_then(|decoded| {
+                    secret::decrypt_secret(
+                        &old_ak,
+                        &decoded,
+                        &item.app,
+                        &item.env,
+                        item.rev_number,
+                    )
+                    .map_err(|e| e.to_string())
+                });
+            let blob_out = match reencrypted {
+                Ok(plaintext) => {
+                    let encrypted = secret::encrypt_secret(
+                        &new_ak,
+                        &plaintext,
+                        &item.app,
+                        &item.env,
+                        item.rev_number,
+                    )
                     .map_err(|e| CliError::Crypto(e.to_string()))?;
-            let encrypted =
-                secret::encrypt_secret(&new_ak, &plaintext, &item.app, &item.env, item.rev_number)
-                    .map_err(|e| CliError::Crypto(e.to_string()))?;
+                    blob::encode_blob(&encrypted)
+                }
+                Err(e) => {
+                    let id = format!("{}/{} rev {}", item.app, item.env, item.rev_number);
+                    eprintln!(
+                        "  \x1b[31m!\x1b[0m {id}: cannot re-encrypt ({e}) — revision was \
+                         already unreadable; keeping its bytes as-is and continuing"
+                    );
+                    skipped.push(id);
+                    revision.blob.clone()
+                }
+            };
             ctx.backend.rotate_put_blob(
                 &item.app,
                 &item.env,
                 item.rev_number,
-                &blob::encode_blob(&encrypted),
+                &blob_out,
                 new_gen,
             )?;
             done += 1;
@@ -120,6 +152,20 @@ pub fn run(ctx: &mut Context, yes: bool) -> Result<(), CliError> {
     }
 
     let current = ctx.backend.rotate_complete()?;
+
+    if !skipped.is_empty() {
+        eprintln!(
+            "  \x1b[31m!\x1b[0m {} revision(s) could not be re-encrypted and remain unreadable:",
+            skipped.len()
+        );
+        for id in &skipped {
+            eprintln!("      {id}");
+        }
+        eprintln!(
+            "      They were unreadable before the rotation too. If a revision matters,\n      \
+             restore it from a pre-rotation backup and push it as a new revision."
+        );
+    }
 
     // The rotator's cache moves to the new generation immediately.
     let server_hash = keychain::server_hash(&ctx.config.server_id());
