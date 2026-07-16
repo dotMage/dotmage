@@ -2,6 +2,8 @@
 
 **dmage** — CLI for [dotMage](https://github.com/dotMage), an E2E-encrypted `.env` secret manager.
 
+Docs: [dotmage.github.io/docs](https://dotmage.github.io/docs/) · How does it compare to Infisical, Vaultwarden, sops, Doppler? — [honest comparison](https://dotmage.github.io/docs/#compare)
+
 ## Install
 
 ### Download binary
