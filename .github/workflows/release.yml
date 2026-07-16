@@ -1,8 +1,10 @@
 name: Release
 
+# Manual-only: run from the Actions tab (or `gh workflow run release.yml`).
+# Reads the version from dmage/Cargo.toml, tags it, builds, publishes the
+# GitHub release and updates the Homebrew formula.
 on:
-  push:
-    branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: write

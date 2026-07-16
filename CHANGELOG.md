@@ -8,6 +8,9 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning: [S
 ### Added
 
 ### Changed
+- Releases are no longer cut automatically on push to `main`: the Release workflow
+  is now `workflow_dispatch`-only (run manually from the Actions tab or via
+  `gh workflow run release.yml`).
 
 ### Fixed
 
