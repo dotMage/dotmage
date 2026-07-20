@@ -17,10 +17,6 @@ jobs:
       version: ${{ steps.check.outputs.version }}
     steps:
       - uses: actions/checkout@v4
-        with:
-          # Fetch the annotated tag object so the lightweight-tag check below
-          # sees `tag`, not `commit` (checkout otherwise leaves a lightweight ref).
-          fetch-depth: 0
       - name: Version from tag, cross-checked against Cargo.toml
         id: check
         run: |
@@ -30,7 +26,9 @@ jobs:
             echo "::error::Tag v${TAG} does not match dmage/Cargo.toml version ${CARGO} — the release commit must bump the version and cut the CHANGELOG before tagging"
             exit 1
           fi
-          if [ "$(git cat-file -t "refs/tags/v${TAG}")" != "tag" ]; then
+          # Annotated tags peel to a `^{}` entry on the remote; lightweight ones don't.
+          # Checked against origin — the runner's local tag ref (post-checkout) is unreliable.
+          if ! git ls-remote origin "refs/tags/v${TAG}*" | grep -qF '^{}'; then
             echo "::error::v${TAG} is a lightweight tag — releases use annotated tags: git tag -a v${TAG} -m 'v${TAG}'"
             exit 1
           fi
