@@ -6,6 +6,10 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning: [S
 ## [Unreleased]
 
 ### Added
+- `dmage open` — open the web admin panel in your browser, already logged in. Resolves
+  the server like `push`/`pull`, reads the panel URL from `/health`, mints a one-time
+  5-min login token and opens it via the URL fragment (kept out of server logs). Falls
+  back to printing the link on headless/SSH sessions; `--print` forces that.
 - `dmage upgrade --channel dev` — opt into prerelease builds (`v2.x.y-dev.N`);
   the default stable channel ignores prereleases entirely. Semver comparison is
   prerelease-aware (`2.2.0 > 2.2.0-dev.3 > 2.1.0`), so leaving the dev channel is a

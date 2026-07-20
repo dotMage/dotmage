@@ -11,6 +11,7 @@ pub mod gen_token;
 pub mod history;
 pub mod init;
 pub mod lock;
+pub mod open;
 pub mod pull;
 pub mod push;
 pub mod rollback;

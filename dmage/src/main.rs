@@ -133,6 +133,12 @@ enum Commands {
     },
     /// Generate a one-time login token for the web admin.
     Token,
+    /// Open the web admin panel in your browser, already logged in.
+    Open {
+        /// Print the login URL instead of launching a browser (headless/SSH).
+        #[arg(long)]
+        print: bool,
+    },
     /// Generate a scoped CI token for a specific app+env.
     GenCiToken {
         /// Application name.
@@ -549,6 +555,7 @@ fn run(cli: Cli) -> Result<(), cmd::CliError> {
             AppAction::Rm { name, yes } => cmd::app_rm::run(&ctx, &name, yes),
         },
         Commands::Token => cmd::token_cmd::run(&ctx),
+        Commands::Open { print } => cmd::open::run(&ctx, print),
         Commands::GenCiToken { app, env, ttl } => cmd::gen_ci_token::run(&ctx, &app, &env, &ttl),
         Commands::Server { action } => {
             let server_cmd = match action {

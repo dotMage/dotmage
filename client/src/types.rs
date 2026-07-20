@@ -163,6 +163,13 @@ pub struct HealthInfo {
     /// default server name. Absent on servers without DOTMAGE_SERVER_NAME.
     #[serde(default)]
     pub server_name: Option<String>,
+    /// Where the admin panel lives, for `dmage open`. `web_url` is a full
+    /// override (reverse-proxy); `web_port` is a hint the CLI combines with the
+    /// host it already talks to. Both absent on older servers.
+    #[serde(default)]
+    pub web_url: Option<String>,
+    #[serde(default)]
+    pub web_port: Option<u16>,
 }
 
 /// Identity of the calling device/user (B.9).
