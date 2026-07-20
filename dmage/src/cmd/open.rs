@@ -67,9 +67,7 @@ fn resolve_web_url(server_url: &str, health: &HealthInfo) -> String {
     }
 
     if let Some(port) = health.web_port {
-        let (scheme, rest) = server_url
-            .split_once("://")
-            .unwrap_or(("http", server_url));
+        let (scheme, rest) = server_url.split_once("://").unwrap_or(("http", server_url));
         let authority = rest.split('/').next().unwrap_or(rest);
         // Strip an existing :port (the API port); keep the host.
         let host = authority.rsplit_once(':').map_or(authority, |(h, _)| h);
@@ -138,13 +136,19 @@ mod tests {
     #[test]
     fn web_url_override_wins() {
         let h = health(Some("https://admin.corp.com/"), Some(9471));
-        assert_eq!(resolve_web_url("http://h:9470", &h), "https://admin.corp.com");
+        assert_eq!(
+            resolve_web_url("http://h:9470", &h),
+            "https://admin.corp.com"
+        );
     }
 
     #[test]
     fn web_port_reuses_cli_host() {
         let h = health(None, Some(9471));
-        assert_eq!(resolve_web_url("http://1.2.3.4:9470", &h), "http://1.2.3.4:9471");
+        assert_eq!(
+            resolve_web_url("http://1.2.3.4:9470", &h),
+            "http://1.2.3.4:9471"
+        );
         assert_eq!(
             resolve_web_url("https://secrets.corp.com", &h),
             "https://secrets.corp.com:9471"
@@ -154,6 +158,9 @@ mod tests {
     #[test]
     fn falls_back_to_origin() {
         let h = health(None, None);
-        assert_eq!(resolve_web_url("http://1.2.3.4:9470/", &h), "http://1.2.3.4:9470");
+        assert_eq!(
+            resolve_web_url("http://1.2.3.4:9470/", &h),
+            "http://1.2.3.4:9470"
+        );
     }
 }

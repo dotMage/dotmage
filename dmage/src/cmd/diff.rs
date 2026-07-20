@@ -28,7 +28,13 @@ pub fn run(
         // local human affordance; JSON output ends up in CI logs.
         println!(
             "{}",
-            render_json(local_file, rev_number, remote.meta.format, &local_data, &remote.data)
+            render_json(
+                local_file,
+                rev_number,
+                remote.meta.format,
+                &local_data,
+                &remote.data
+            )
         );
         return Ok(());
     }
@@ -222,9 +228,15 @@ mod tests {
         assert_eq!(v["identical"], false);
         let changes = v["changes"].as_array().unwrap();
         assert_eq!(changes.len(), 3);
-        assert!(changes.iter().any(|c| c["key"] == "CHANGED" && c["status"] == "changed"));
-        assert!(changes.iter().any(|c| c["key"] == "LOCAL_ONLY" && c["status"] == "local_only"));
-        assert!(changes.iter().any(|c| c["key"] == "REMOTE_ONLY" && c["status"] == "remote_only"));
+        assert!(changes
+            .iter()
+            .any(|c| c["key"] == "CHANGED" && c["status"] == "changed"));
+        assert!(changes
+            .iter()
+            .any(|c| c["key"] == "LOCAL_ONLY" && c["status"] == "local_only"));
+        assert!(changes
+            .iter()
+            .any(|c| c["key"] == "REMOTE_ONLY" && c["status"] == "remote_only"));
         // The contract: values must not appear anywhere in the document.
         assert!(!out.contains("local-secret"));
         assert!(!out.contains("remote-secret"));

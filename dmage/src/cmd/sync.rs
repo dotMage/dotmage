@@ -33,7 +33,9 @@ pub fn run(ctx: &mut Context, app_arg: Option<&str>) -> Result<(), CliError> {
     // Remote latest also tells us the stored file name. If the app/env isn't on
     // the server yet, point at init rather than guessing.
     let (rev_number, remote) = ctx.pull_decoded(&name, &RevSpec::Latest).map_err(|_| {
-        CliError::Other(format!("no remote revisions for '{name}' — run: dmage init {name}"))
+        CliError::Other(format!(
+            "no remote revisions for '{name}' — run: dmage init {name}"
+        ))
     })?;
 
     let file = remote.meta.file_name.clone();
@@ -49,7 +51,10 @@ pub fn run(ctx: &mut Context, app_arg: Option<&str>) -> Result<(), CliError> {
 
     if local_data == remote.data {
         ctx.record_sync_state(&name, &env_name, rev_number, &file, &local_data);
-        ctx.success(&format!("in sync (rev {rev_number}).{}", ctx.server_suffix()));
+        ctx.success(&format!(
+            "in sync (rev {rev_number}).{}",
+            ctx.server_suffix()
+        ));
         return Ok(());
     }
 
@@ -59,7 +64,10 @@ pub fn run(ctx: &mut Context, app_arg: Option<&str>) -> Result<(), CliError> {
         .as_ref()
         .map(|e| sha256_hex(&local_data) != e.hash)
         .unwrap_or(true);
-    let remote_advanced = entry.as_ref().map(|e| rev_number > e.base_rev).unwrap_or(true);
+    let remote_advanced = entry
+        .as_ref()
+        .map(|e| rev_number > e.base_rev)
+        .unwrap_or(true);
 
     match decide(local_changed, remote_advanced) {
         Action::Push => {

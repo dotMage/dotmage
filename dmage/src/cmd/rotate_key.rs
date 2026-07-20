@@ -106,14 +106,8 @@ pub fn run(ctx: &mut Context, yes: bool) -> Result<(), CliError> {
             let reencrypted = blob::decode_blob(&revision.blob)
                 .map_err(|e| e.to_string())
                 .and_then(|decoded| {
-                    secret::decrypt_secret(
-                        &old_ak,
-                        &decoded,
-                        &item.app,
-                        &item.env,
-                        item.rev_number,
-                    )
-                    .map_err(|e| e.to_string())
+                    secret::decrypt_secret(&old_ak, &decoded, &item.app, &item.env, item.rev_number)
+                        .map_err(|e| e.to_string())
                 });
             let blob_out = match reencrypted {
                 Ok(plaintext) => {

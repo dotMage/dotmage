@@ -46,7 +46,13 @@ pub fn run(
     }
 
     std::fs::write(path, &decoded.data)?;
-    ctx.record_sync_state(name, &ctx.active_env.clone(), rev_number, out_path, &decoded.data);
+    ctx.record_sync_state(
+        name,
+        &ctx.active_env.clone(),
+        rev_number,
+        out_path,
+        &decoded.data,
+    );
 
     ctx.success(&format!(
         "Wrote {out_path} from revision {rev_number} ({}).{}",
