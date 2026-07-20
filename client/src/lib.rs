@@ -6,5 +6,6 @@ pub mod backend_http;
 pub mod config;
 pub mod container;
 pub mod keychain;
+pub mod sync_state;
 pub mod token;
 pub mod types;

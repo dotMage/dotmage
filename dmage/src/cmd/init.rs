@@ -54,6 +54,7 @@ pub fn run(
 
     ctx.backend
         .push_revision(name, &ctx.active_env, &blob_str, 0)?;
+    ctx.record_sync_state(name, &ctx.active_env.clone(), 1, file, &data);
 
     ctx.success(&format!(
         "Created app '\x1b[1m{name}\x1b[0m'. Pushed revision 1 from {file} ({}).{}",

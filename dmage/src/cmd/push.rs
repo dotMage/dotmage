@@ -83,6 +83,7 @@ pub fn run(
     // rewrite never creates a revision.
     if let Some(ref d) = prev {
         if d.data == data {
+            ctx.record_sync_state(name, &env_name, parent_rev, &file, &data);
             ctx.print(&format!("nothing to push (identical to rev {parent_rev})"));
             return Ok(());
         }
@@ -98,6 +99,7 @@ pub fn run(
         .backend
         .push_revision(name, &env_name, &blob_str, parent_rev)?;
 
+    ctx.record_sync_state(name, &env_name, pushed.rev_number, &file, &data);
     ctx.success(&format!(
         "Pushed revision {} ({}).{}",
         pushed.rev_number,

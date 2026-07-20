@@ -6,6 +6,14 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning: [S
 ## [Unreleased]
 
 ### Added
+- `dmage sync [app]` — one command that does the right thing: pulls when the server is ahead,
+  pushes local changes, or (when both moved) shows a key-level diff and asks you to choose —
+  never auto-merges. Bare `dmage` in a project now hints "unpushed changes → dmage sync". Uses
+  a small device-level marker (`~/.dotmage/sync_state.json`, revision + hash, no secrets), never
+  written into the project.
+- `dmage completions <shell>` — print a shell completion script (bash/zsh/fish/elvish/
+  powershell) to stdout so Tab completes commands and flags. Homebrew installs them
+  automatically; otherwise redirect the script where your shell looks.
 - `dmage open` — open the web admin panel in your browser, already logged in. Resolves
   the server like `push`/`pull`, reads the panel URL from `/health`, mints a one-time
   5-min login token and opens it via the URL fragment (kept out of server logs). Falls

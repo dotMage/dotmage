@@ -7,6 +7,7 @@ edition = "2021"
 dotmage-client = { path = "../client" }
 dotmage-crypto = { path = "../crypto" }
 clap = { version = "4", features = ["derive"] }
+clap_complete = "4"
 thiserror = "2"
 rpassword = "7"
 base64 = "0.22"

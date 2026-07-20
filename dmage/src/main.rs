@@ -133,11 +133,21 @@ enum Commands {
     },
     /// Generate a one-time login token for the web admin.
     Token,
+    /// Generate a shell completion script (print to stdout).
+    Completions {
+        /// Target shell.
+        shell: clap_complete::Shell,
+    },
     /// Open the web admin panel in your browser, already logged in.
     Open {
         /// Print the login URL instead of launching a browser (headless/SSH).
         #[arg(long)]
         print: bool,
+    },
+    /// Sync this project with the server: pull, push, or show what diverged.
+    Sync {
+        /// App name (default: current directory name).
+        app: Option<String>,
     },
     /// Generate a scoped CI token for a specific app+env.
     GenCiToken {
@@ -438,6 +448,12 @@ fn run(cli: Cli) -> Result<(), cmd::CliError> {
         return Ok(());
     }
 
+    // Completions are pure output from the clap tree — no server, config or keys.
+    if let Commands::Completions { shell } = command {
+        cmd::completions::run(shell);
+        return Ok(());
+    }
+
     // --server takes a configured name; a URL is accepted only with `dmage auth`,
     // where it registers the server first.
     let mut server_override = cli.server.clone();
@@ -556,6 +572,7 @@ fn run(cli: Cli) -> Result<(), cmd::CliError> {
         },
         Commands::Token => cmd::token_cmd::run(&ctx),
         Commands::Open { print } => cmd::open::run(&ctx, print),
+        Commands::Sync { app } => cmd::sync::run(&mut ctx, app.as_deref()),
         Commands::GenCiToken { app, env, ttl } => cmd::gen_ci_token::run(&ctx, &app, &env, &ttl),
         Commands::Server { action } => {
             let server_cmd = match action {
@@ -610,7 +627,7 @@ fn run(cli: Cli) -> Result<(), cmd::CliError> {
                 EnvAction::Rm { app, name, yes } => cmd::env::EnvCmd::Rm(app, name, yes),
             }),
         ),
-        Commands::Help => unreachable!(),
+        Commands::Help | Commands::Completions { .. } => unreachable!(),
     }
 }
 
@@ -678,7 +695,42 @@ fn print_banner() {
         println!("  \x1b[90mrun: \x1b[0mdmage upgrade");
     }
 
+    // Actionable nudge for the current project (offline, best-effort).
+    print_sync_hint(&config);
+
     println!();
     println!("  \x1b[90mRun \x1b[0mdmage help\x1b[90m for commands\x1b[0m");
     println!();
+}
+
+/// If the current directory is a synced project with unpushed local changes,
+/// nudge toward `dmage sync`. Offline and best-effort — silent on any miss, and
+/// only detects LOCAL changes (remote-ahead needs a network call).
+fn print_sync_hint(config: &dotmage_client::config::Config) {
+    let Ok(cwd) = std::env::current_dir() else {
+        return;
+    };
+    let cwd = cwd.canonicalize().unwrap_or(cwd);
+    let Ok(Some(resolved)) = config.resolve_server(None, &cwd) else {
+        return;
+    };
+    let Some(app) = cwd.file_name().and_then(|n| n.to_str()) else {
+        return;
+    };
+    let server_hash = dotmage_client::keychain::server_hash(&resolved.url);
+    let Some(entry) = dotmage_client::sync_state::load(
+        &server_hash,
+        app,
+        &config.active_env,
+        &cwd.to_string_lossy(),
+    ) else {
+        return;
+    };
+    let Ok(bytes) = std::fs::read(&entry.file) else {
+        return;
+    };
+    if cmd::sha256_hex(&bytes) != entry.hash {
+        println!();
+        println!("  \x1b[33munpushed changes\x1b[0m in {app} → run: dmage sync");
+    }
 }

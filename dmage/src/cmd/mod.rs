@@ -4,6 +4,7 @@ pub mod app_rm;
 pub mod apps;
 pub mod auth;
 pub mod clean;
+pub mod completions;
 pub mod diff;
 pub mod env;
 pub mod exec;
@@ -18,6 +19,7 @@ pub mod rollback;
 pub mod rotate_key;
 pub mod server;
 pub mod status;
+pub mod sync;
 pub mod token_cmd;
 pub mod upgrade;
 pub mod user;
@@ -32,6 +34,7 @@ use dotmage_client::backend_http::HttpBackend;
 use dotmage_client::config::{Config, ResolvedVia};
 use dotmage_client::container::{self, Decoded, FileFormat, FileMeta};
 use dotmage_client::keychain;
+use dotmage_client::sync_state;
 use dotmage_client::token;
 use dotmage_client::types::RevSpec;
 use dotmage_crypto::{blob, secret};
@@ -250,6 +253,33 @@ impl Context {
         Ok(())
     }
 
+    /// Record the sync base marker (device-level, never in the project) after a
+    /// successful push/pull/init. Best-effort: never fails the command.
+    pub fn record_sync_state(&self, app: &str, env: &str, base_rev: u64, file: &str, bytes: &[u8]) {
+        let (Some(url), Some(dir)) = (self.config.server_url.as_ref(), sync_dir()) else {
+            return;
+        };
+        let server_hash = keychain::server_hash(url);
+        let _ = sync_state::save(
+            &server_hash,
+            app,
+            env,
+            &dir,
+            sync_state::SyncEntry {
+                base_rev,
+                hash: sha256_hex(bytes),
+                file: file.to_string(),
+            },
+        );
+    }
+
+    /// Load the sync base marker for this app/env in the current directory.
+    pub fn sync_state_entry(&self, app: &str, env: &str) -> Option<sync_state::SyncEntry> {
+        let url = self.config.server_url.as_ref()?;
+        let dir = sync_dir()?;
+        sync_state::load(&keychain::server_hash(url), app, env, &dir)
+    }
+
     pub fn print(&self, msg: &str) {
         if !self.quiet {
             println!("  {msg}");
@@ -261,6 +291,19 @@ impl Context {
             println!("  \x1b[32m✓\x1b[0m {msg}");
         }
     }
+}
+
+/// Canonical current directory as a string — the sync-state key component.
+fn sync_dir() -> Option<String> {
+    let dir = std::env::current_dir().ok()?;
+    let dir = dir.canonicalize().unwrap_or(dir);
+    Some(dir.to_string_lossy().into_owned())
+}
+
+/// sha256 (hex) of some bytes — the sync-state content hash.
+pub fn sha256_hex(bytes: &[u8]) -> String {
+    use sha2::{Digest, Sha256};
+    hex::encode(Sha256::digest(bytes))
 }
 
 /// Strip scheme and trailing slash from a URL for compact display.
