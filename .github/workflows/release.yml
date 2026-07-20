@@ -17,6 +17,10 @@ jobs:
       version: ${{ steps.check.outputs.version }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Fetch the annotated tag object so the lightweight-tag check below
+          # sees `tag`, not `commit` (checkout otherwise leaves a lightweight ref).
+          fetch-depth: 0
       - name: Version from tag, cross-checked against Cargo.toml
         id: check
         run: |
