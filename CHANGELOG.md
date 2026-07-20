@@ -5,6 +5,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning: [S
 
 ## [Unreleased]
 
+## [2.1.0] - 2026-07-20
+
 ### Added
 - `dmage sync [app]` — one command that does the right thing: pulls when the server is ahead,
   pushes local changes, or (when both moved) shows a key-level diff and asks you to choose —
