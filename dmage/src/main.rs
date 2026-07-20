@@ -206,6 +206,9 @@ enum Commands {
         /// Skip the confirmation prompt.
         #[arg(short = 'y', long)]
         yes: bool,
+        /// Release channel: stable (default) or dev (includes prereleases).
+        #[arg(long, default_value = "stable")]
+        channel: String,
     },
     /// Manage environments.
     Env {
@@ -586,7 +589,8 @@ fn run(cli: Cli) -> Result<(), cmd::CliError> {
             version,
             force,
             yes,
-        } => cmd::upgrade::run(&ctx, check, version.as_deref(), force, yes),
+            channel,
+        } => cmd::upgrade::run(&ctx, check, version.as_deref(), force, yes, &channel),
         Commands::Env { action } => cmd::env::run(
             &mut ctx,
             action.map(|a| match a {

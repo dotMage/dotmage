@@ -6,6 +6,10 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning: [S
 ## [Unreleased]
 
 ### Added
+- `dmage upgrade --channel dev` — opt into prerelease builds (`v2.x.y-dev.N`);
+  the default stable channel ignores prereleases entirely. Semver comparison is
+  prerelease-aware (`2.2.0 > 2.2.0-dev.3 > 2.1.0`), so leaving the dev channel is a
+  regular upgrade once the stable release lands.
 - `--json` on `status`, `diff`, `history`, `apps`, `whoami` — machine-readable output
   for scripts, CI and editor integrations. One JSON document on stdout, errors stay on
   stderr; schemas are a semver contract (spec §5). `diff --json` never includes secret

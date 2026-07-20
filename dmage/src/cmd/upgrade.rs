@@ -19,12 +19,21 @@ pub fn run(
     version: Option<&str>,
     force: bool,
     yes: bool,
+    channel: &str,
 ) -> Result<(), CliError> {
     let exe = std::env::current_exe()
         .and_then(std::fs::canonicalize)
         .map_err(|e| CliError::Other(format!("cannot locate current binary: {e}")))?;
 
-    let release = fetch_release(version)?;
+    let channel = match channel {
+        "stable" | "dev" => channel,
+        other => {
+            return Err(CliError::Other(format!(
+                "unknown channel '{other}' — use stable or dev"
+            )))
+        }
+    };
+    let release = fetch_release(version, channel)?;
     let target = release.version.clone();
 
     ctx.print(&format!("current  v{CURRENT}"));
@@ -222,13 +231,16 @@ impl Release {
     }
 }
 
-fn fetch_release(version: Option<&str>) -> Result<Release, CliError> {
-    let url = match version {
-        Some(v) => format!(
+fn fetch_release(version: Option<&str>, channel: &str) -> Result<Release, CliError> {
+    // dev channel: /releases/latest hides prereleases, so list and pick the
+    // newest by semver (prereleases included).
+    let url = match (version, channel) {
+        (Some(v), _) => format!(
             "https://api.github.com/repos/{REPO}/releases/tags/v{}",
             v.trim_start_matches('v')
         ),
-        None => format!("https://api.github.com/repos/{REPO}/releases/latest"),
+        (None, "dev") => format!("https://api.github.com/repos/{REPO}/releases?per_page=30"),
+        (None, _) => format!("https://api.github.com/repos/{REPO}/releases/latest"),
     };
 
     let client = reqwest::blocking::Client::builder()
@@ -266,12 +278,35 @@ fn fetch_release(version: Option<&str>) -> Result<Release, CliError> {
     struct GhRelease {
         tag_name: String,
         #[serde(default)]
+        draft: bool,
+        #[serde(default)]
         assets: Vec<GhAsset>,
     }
 
-    let gh: GhRelease = resp
-        .json()
-        .map_err(|e| CliError::Other(format!("bad release JSON: {e}")))?;
+    let gh: GhRelease = if version.is_none() && channel == "dev" {
+        let list: Vec<GhRelease> = resp
+            .json()
+            .map_err(|e| CliError::Other(format!("bad release JSON: {e}")))?;
+        list.into_iter()
+            .filter(|r| !r.draft)
+            .max_by(|a, b| {
+                let (va, vb) = (
+                    a.tag_name.trim_start_matches('v'),
+                    b.tag_name.trim_start_matches('v'),
+                );
+                if semver_gt(va, vb) {
+                    std::cmp::Ordering::Greater
+                } else if semver_gt(vb, va) {
+                    std::cmp::Ordering::Less
+                } else {
+                    std::cmp::Ordering::Equal
+                }
+            })
+            .ok_or_else(|| CliError::Other("no releases found".into()))?
+    } else {
+        resp.json()
+            .map_err(|e| CliError::Other(format!("bad release JSON: {e}")))?
+    };
 
     Ok(Release {
         version: gh.tag_name.trim_start_matches('v').to_string(),
@@ -310,17 +345,61 @@ fn refresh_update_cache(latest: &str) {
     }
 }
 
-/// Compare two semver strings. Returns true if `a` is newer than `b`.
+/// Compare two semver strings, prerelease-aware. Returns true if `a` is newer
+/// than `b`. Per semver: `2.2.0 > 2.2.0-dev.3 > 2.2.0-dev.2 > 2.1.0`.
 pub fn semver_gt(a: &str, b: &str) -> bool {
-    let parse = |s: &str| -> (u32, u32, u32) {
-        let mut parts = s.split('.').map(|p| p.parse::<u32>().unwrap_or(0));
+    fn parse(s: &str) -> ((u32, u32, u32), Option<&str>) {
+        let (core, pre) = match s.split_once('-') {
+            Some((c, p)) => (c, Some(p)),
+            None => (s, None),
+        };
+        let mut parts = core.split('.').map(|p| p.parse::<u32>().unwrap_or(0));
         (
-            parts.next().unwrap_or(0),
-            parts.next().unwrap_or(0),
-            parts.next().unwrap_or(0),
+            (
+                parts.next().unwrap_or(0),
+                parts.next().unwrap_or(0),
+                parts.next().unwrap_or(0),
+            ),
+            pre,
         )
-    };
-    parse(a) > parse(b)
+    }
+    let ((ca, pa), (cb, pb)) = (parse(a), parse(b));
+    if ca != cb {
+        return ca > cb;
+    }
+    match (pa, pb) {
+        (None, None) => false,
+        (None, Some(_)) => true,  // release > its prereleases
+        (Some(_), None) => false, // prerelease < the release
+        (Some(pa), Some(pb)) => prerelease_gt(pa, pb),
+    }
+}
+
+/// Semver §11 prerelease ordering: dot-separated identifiers, numeric compared
+/// numerically and lower than alphanumeric; more identifiers wins a tie.
+fn prerelease_gt(a: &str, b: &str) -> bool {
+    let mut ia = a.split('.');
+    let mut ib = b.split('.');
+    loop {
+        match (ia.next(), ib.next()) {
+            (None, None) => return false,
+            (Some(_), None) => return true,
+            (None, Some(_)) => return false,
+            (Some(x), Some(y)) => {
+                let ord = match (x.parse::<u64>(), y.parse::<u64>()) {
+                    (Ok(nx), Ok(ny)) => nx.cmp(&ny),
+                    (Ok(_), Err(_)) => std::cmp::Ordering::Less,
+                    (Err(_), Ok(_)) => std::cmp::Ordering::Greater,
+                    (Err(_), Err(_)) => x.cmp(y),
+                };
+                match ord {
+                    std::cmp::Ordering::Equal => continue,
+                    std::cmp::Ordering::Greater => return true,
+                    std::cmp::Ordering::Less => return false,
+                }
+            }
+        }
+    }
 }
 
 /// Banner update check: GitHub latest-release lookup with a 24h on-disk cache.
@@ -401,6 +480,14 @@ mod tests {
         assert!(semver_gt("2.0.0", "1.99.99"));
         assert!(!semver_gt("1.2.1", "1.2.1"));
         assert!(!semver_gt("1.2.0", "1.2.1"));
+        // prerelease ordering (semver §11): 2.2.0 > 2.2.0-dev.3 > 2.2.0-dev.2 > 2.1.0
+        assert!(semver_gt("2.2.0", "2.2.0-dev.3"));
+        assert!(!semver_gt("2.2.0-dev.3", "2.2.0"));
+        assert!(semver_gt("2.2.0-dev.3", "2.2.0-dev.2"));
+        assert!(semver_gt("2.2.0-dev.10", "2.2.0-dev.9")); // numeric, not lexical
+        assert!(semver_gt("2.2.0-dev.1", "2.1.0"));
+        assert!(!semver_gt("2.2.0-dev.1", "2.2.0-dev.1"));
+        assert!(semver_gt("2.2.0-dev.1.1", "2.2.0-dev.1")); // more identifiers wins
     }
 
     #[test]

@@ -106,6 +106,10 @@ jobs:
       - uses: softprops/action-gh-release@v2
         with:
           tag_name: "v${{ needs.version.outputs.version }}"
+          # A version with a hyphen (v2.2.0-dev.1) is a dev-channel build:
+          # marked prerelease, invisible to /releases/latest and to
+          # `dmage upgrade` on the default stable channel.
+          prerelease: ${{ contains(needs.version.outputs.version, '-') }}
           files: |
             dmage-*
             SHA256SUMS
@@ -114,6 +118,8 @@ jobs:
 
   homebrew:
     needs: [version, release]
+    # The formula tracks the stable channel only.
+    if: ${{ !contains(needs.version.outputs.version, '-') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
