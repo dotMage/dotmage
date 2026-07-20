@@ -54,9 +54,17 @@ pub fn run(ctx: &Context, print: bool) -> Result<(), CliError> {
 }
 
 /// Build the admin panel base URL the browser should open.
-/// Priority: the server's full `web_url` override > `{scheme}://{host}:{web_port}`
-/// (host taken from the URL the CLI already talks to, since the server can't
-/// know its own external host) > the server origin as-is (same-origin/proxy).
+///
+/// Priority:
+/// 1. `web_url` override — the only reliable signal for a reverse proxy
+///    (subpath, subdomain, custom port). Set via `DOTMAGE_WEB_URL`.
+/// 2. A TLS endpoint on the default port (`https://host`, no explicit port) is
+///    almost certainly behind a proxy that terminates TLS and serves the panel
+///    at the *same origin*. Open that origin — appending `:web_port` (9471)
+///    would hit a closed port, which is exactly what domain users ran into.
+/// 3. A direct deployment (plain `http`, or an explicit API port on the host):
+///    the web container listens on `web_port` on that same host.
+/// 4. Nothing to go on — open the origin the CLI already talks to.
 fn resolve_web_url(server_url: &str, health: &HealthInfo) -> String {
     let server_url = server_url.trim_end_matches('/');
 
@@ -66,15 +74,24 @@ fn resolve_web_url(server_url: &str, health: &HealthInfo) -> String {
         }
     }
 
+    let (scheme, rest) = server_url.split_once("://").unwrap_or(("http", server_url));
+    let authority = rest.split('/').next().unwrap_or(rest);
+    let host_port = authority.rsplit_once(':');
+    let explicit_port = host_port.and_then(|(_, p)| p.parse::<u16>().ok());
+    let host = host_port.map_or(authority, |(h, _)| h);
+
+    // A reverse proxy can't be probed for topology, so treat a bare HTTPS host
+    // as same-origin and never guess a port for it. `DOTMAGE_WEB_URL` is the
+    // escape hatch for panels on a subpath/subdomain.
+    if scheme == "https" && explicit_port.is_none_or(|p| p == 443) {
+        return format!("https://{host}");
+    }
+
     if let Some(port) = health.web_port {
-        let (scheme, rest) = server_url.split_once("://").unwrap_or(("http", server_url));
-        let authority = rest.split('/').next().unwrap_or(rest);
-        // Strip an existing :port (the API port); keep the host.
-        let host = authority.rsplit_once(':').map_or(authority, |(h, _)| h);
         return format!("{scheme}://{host}:{port}");
     }
 
-    server_url.to_string()
+    format!("{scheme}://{authority}")
 }
 
 #[cfg(target_os = "macos")]
@@ -143,15 +160,41 @@ mod tests {
     }
 
     #[test]
-    fn web_port_reuses_cli_host() {
+    fn web_port_reuses_cli_host_on_direct_http() {
+        // Direct docker deployment: API on one port, web on web_port, same host.
         let h = health(None, Some(9471));
         assert_eq!(
             resolve_web_url("http://1.2.3.4:9470", &h),
             "http://1.2.3.4:9471"
         );
+    }
+
+    #[test]
+    fn https_domain_opens_same_origin() {
+        // The domain bug: a TLS host behind a proxy — never append web_port.
+        let h = health(None, Some(9471));
         assert_eq!(
             resolve_web_url("https://secrets.corp.com", &h),
-            "https://secrets.corp.com:9471"
+            "https://secrets.corp.com"
+        );
+        assert_eq!(
+            resolve_web_url("https://secrets.corp.com/", &h),
+            "https://secrets.corp.com"
+        );
+        // An explicit :443 is still the default TLS port → same origin.
+        assert_eq!(
+            resolve_web_url("https://secrets.corp.com:443", &h),
+            "https://secrets.corp.com"
+        );
+    }
+
+    #[test]
+    fn web_url_override_beats_https_heuristic() {
+        // A panel on a subpath still resolves, because the override wins.
+        let h = health(Some("https://secrets.corp.com/admin"), Some(9471));
+        assert_eq!(
+            resolve_web_url("https://secrets.corp.com", &h),
+            "https://secrets.corp.com/admin"
         );
     }
 

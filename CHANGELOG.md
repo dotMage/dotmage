@@ -5,6 +5,12 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning: [S
 
 ## [Unreleased]
 
+### Fixed
+- `dmage open` opened `https://<domain>:9471` for servers behind a reverse proxy, hitting a
+  closed port. A bare HTTPS host (no explicit port) is now treated as same-origin — the panel
+  opens at the domain itself. `DOTMAGE_WEB_URL` remains the override for a panel on a
+  subpath/subdomain, and direct `http://host` deployments still use the `web_port` hint.
+
 ## [2.1.0] - 2026-07-20
 
 ### Added
