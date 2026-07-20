@@ -45,6 +45,9 @@ pub struct DeviceAuthResp {
     pub device_token: String,
     pub refresh_token: String,
     pub device_id: String,
+    // Accept `expires_at` too: the CI-token endpoint used that name in older
+    // servers, while the auth endpoints send `token_expires_at`.
+    #[serde(alias = "expires_at")]
     #[allow(dead_code)]
     pub token_expires_at: String,
 }

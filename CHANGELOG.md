@@ -39,6 +39,9 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning: [S
   features between releases.
 
 ### Fixed
+- `dmage gen-ci-token` failed with `missing field token_expires_at` while parsing the
+  server response. The client now accepts both `token_expires_at` and the older
+  `expires_at` field name, so it works against current and older servers.
 - `dmage env new --copy-from` produced an environment whose every pull failed with
   "AEAD authentication failed": the server copied the encrypted blob byte-for-byte,
   but ciphertext is bound to `app|env|rev`. The copy now happens client-side —
