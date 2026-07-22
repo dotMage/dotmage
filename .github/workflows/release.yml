@@ -161,9 +161,9 @@ jobs:
             def install
               binary = Dir["dmage-*"].first || "dmage"
               bin.install binary => "dmage"
-
-              # Runs \`dmage completions bash|zsh|fish\` and installs each to the right dir.
-              generate_completions_from_executable(bin/"dmage", "completions")
+              # No generate_completions_from_executable: it runs the binary during
+              # install, which Homebrew's sandbox denies (exec EACCES) and aborts
+              # the install. Completions are a manual step: \`dmage completions zsh\`.
             end
 
             test do
