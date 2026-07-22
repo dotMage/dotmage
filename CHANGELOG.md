@@ -5,6 +5,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning: [S
 
 ## [Unreleased]
 
+## [2.1.1] - 2026-07-22
+
 ### Fixed
 - `dmage open` opened `https://<domain>:9471` for servers behind a reverse proxy, hitting a
   closed port. A bare HTTPS host (no explicit port) is now treated as same-origin — the panel
